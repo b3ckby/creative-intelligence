@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -220,8 +221,8 @@ describe('Creative Intelligence workspace', () => {
       items: [{
         ...ad,
         mediaUrls: [
-          'https://video-gru1-1.xx.fbcdn.net/o1/v/t2/f2/m366/opaque-video-token',
           'https://scontent-gru1-2.xx.fbcdn.net/v/t39.35426-6/preview-token',
+          'https://video-gru1-1.xx.fbcdn.net/o1/v/t2/f2/m366/opaque-video-token',
         ],
       }],
       nextCursor: null,
@@ -230,6 +231,7 @@ describe('Creative Intelligence workspace', () => {
     await screen.findByRole('heading', { name: 'Northstar' })
     fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
 
+    await waitFor(() => expect(container.querySelector('video')).not.toBeNull())
     const video = container.querySelector('video')
     expect(video).not.toBeNull()
     expect(screen.queryByRole('button', { name: 'Load creative from Orbit' })).toBeNull()
@@ -244,6 +246,80 @@ describe('Creative Intelligence workspace', () => {
     expect(styles).not.toMatch(/\.ad-visual\s*\{[^}]*aspect-ratio:\s*4\/3/su)
     expect(styles).toMatch(/\.ad-visual img[^}]*height:\s*auto/su)
     expect(styles).toMatch(/\.ad-visual video[^}]*height:\s*auto/su)
+  })
+
+  it('opens a complete creative detail dialog from an ad card', async () => {
+    const client = api()
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'View creative details for Orbit' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Orbit creative' })
+    expect(within(dialog).getByText(ad.body)).toBeTruthy()
+    expect(within(dialog).getByText('Learn more')).toBeTruthy()
+    expect(within(dialog).getByRole('link', { name: 'Open original ad' }).getAttribute('href')).toBe(ad.sourceUrl)
+  })
+
+  it('keeps focus inside the creative dialog across parent rerenders', async () => {
+    const client = api()
+    const view = render(<StrictMode><Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} /></StrictMode>)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
+    const trigger = await screen.findByRole('button', { name: 'View creative details for Orbit' })
+    const restoreFocus = vi.spyOn(trigger, 'focus')
+    trigger.focus()
+    fireEvent.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: 'Orbit creative' })
+    expect(dialog.contains(document.activeElement)).toBe(true)
+    restoreFocus.mockClear()
+
+    view.rerender(<StrictMode><Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} /></StrictMode>)
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+
+    expect(restoreFocus).not.toHaveBeenCalled()
+    expect(dialog.contains(document.activeElement)).toBe(true)
+  })
+
+  it('restores focus to the creative opener after closing in StrictMode', async () => {
+    const client = api()
+    render(<StrictMode><Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} /></StrictMode>)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
+    const trigger = await screen.findByRole('button', { name: 'View creative details for Orbit' })
+    trigger.focus()
+    fireEvent.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: 'Orbit creative' })
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close dialog' }))
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+
+    expect(screen.queryByRole('dialog', { name: 'Orbit creative' })).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('filters creatives by text and media format in the browser', async () => {
+    const client = api()
+    vi.mocked(client.listAds).mockResolvedValue({
+      items: [
+        { ...ad, id: 'video-ad', body: 'Vertical product demo', mediaUrls: ['https://cdn.example.test/demo.mp4'] },
+        { ...ad, id: 'text-ad', body: 'Founder testimonial', mediaUrls: [] },
+      ],
+      nextCursor: null,
+    })
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
+    expect(await screen.findByText('2 creatives')).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('Search creatives'), { target: { value: 'testimonial' } })
+    expect(screen.getByText('1 creative')).toBeTruthy()
+    expect(screen.queryByText('Vertical product demo')).toBeNull()
+
+    fireEvent.change(screen.getByLabelText('Search creatives'), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText('Media format'), { target: { value: 'video' } })
+    expect(screen.getByText('1 creative')).toBeTruthy()
+    expect(screen.queryByText('Founder testimonial')).toBeNull()
   })
 
   it('keeps a submitting dialog open until its mutation settles', async () => {

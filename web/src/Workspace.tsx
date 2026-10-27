@@ -42,6 +42,7 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
   const [showProductForm, setShowProductForm] = useState(false)
   const [showCompetitorForm, setShowCompetitorForm] = useState(false)
   const [showBriefForm, setShowBriefForm] = useState(false)
+  const [selectedAd, setSelectedAd] = useState<CompetitorAd | null>(null)
   const [adFilters, setAdFilters] = useState<AdFilters>({})
   const adFiltersRef = useRef<AdFilters>({})
   adFiltersRef.current = adFilters
@@ -59,7 +60,7 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
   const selectedProduct = products.find((product) => product.id === selectedProductId) ?? products[0]
   const selectedProductRef = useRef('')
   selectedProductRef.current = selectedProduct?.id ?? ''
-  const dialogOpen = showProductForm || showCompetitorForm || showBriefForm
+  const dialogOpen = showProductForm || showCompetitorForm || showBriefForm || selectedAd !== null
 
   useEffect(() => {
     let active = true
@@ -89,6 +90,7 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
     setCompetitors([])
     setAds([])
     setBriefs([])
+    setSelectedAd(null)
     setAdFilters(selectedProduct ? { productId: selectedProduct.id } : {})
     setIterationMap(null)
     if (!selectedProduct) return
@@ -319,6 +321,7 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
                 pendingBriefAdIds={pendingBriefAdIds}
                 onFilter={reloadAds}
                 onCreateBrief={createBriefFromAd}
+                onInspect={setSelectedAd}
               />
             )}
             {surface === 'briefs' && (
@@ -335,6 +338,7 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
       {showProductForm && <ProductDialog onClose={() => setShowProductForm(false)} onSubmit={createProduct} />}
       {showCompetitorForm && <CompetitorDialog onClose={() => setShowCompetitorForm(false)} onSubmit={createCompetitor} />}
       {showBriefForm && <BriefDialog product={selectedProduct} onClose={() => setShowBriefForm(false)} onSubmit={createBrief} />}
+      {selectedAd && <CreativeDetailDialog ad={selectedAd} pending={pendingBriefAdIds.has(selectedAd.id)} onClose={() => setSelectedAd(null)} onCreateBrief={createBriefFromAd} />}
     </>
   )
 }
@@ -414,7 +418,7 @@ function CompetitorsSurface({ competitors, pendingSyncIds, onAdd, onSync }: {
   )
 }
 
-function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, onFilter, onCreateBrief }: {
+function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, onFilter, onCreateBrief, onInspect }: {
   ads: CompetitorAd[]
   competitors: Competitor[]
   filters: AdFilters
@@ -422,11 +426,29 @@ function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, o
   pendingBriefAdIds: ReadonlySet<string>
   onFilter: (filters: AdFilters) => Promise<void>
   onCreateBrief: (ad: CompetitorAd) => Promise<void>
+  onInspect: (ad: CompetitorAd) => void
 }) {
+  const [query, setQuery] = useState('')
+  const [mediaFormat, setMediaFormat] = useState<'all' | 'video' | 'image' | 'text'>('all')
+  const [startedAfter, setStartedAfter] = useState('')
+  const visibleAds = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase()
+    const minimumDate = startedAfter ? new Date(`${startedAfter}T00:00:00Z`).getTime() : null
+    return ads.filter((ad) => {
+      const searchable = `${ad.advertiserName}\n${ad.body}\n${ad.callToAction ?? ''}`.toLocaleLowerCase()
+      if (needle && !searchable.includes(needle)) return false
+      if (mediaFormat !== 'all' && creativeMediaFormat(ad) !== mediaFormat) return false
+      if (minimumDate !== null && new Date(ad.startedAt).getTime() < minimumDate) return false
+      return true
+    })
+  }, [ads, mediaFormat, query, startedAfter])
+  const resultLabel = `${visibleAds.length} ${visibleAds.length === 1 ? 'creative' : 'creatives'}`
+
   return (
     <section className="surface">
       <SurfaceHeading eyebrow="Competitive evidence" title="Ad Library" />
       <div className="filter-bar">
+        <label>Search creatives<input aria-label="Search creatives" type="search" value={query} maxLength={200} placeholder="Copy, CTA, advertiser" onChange={(event) => setQuery(event.target.value)} /></label>
         <label>Competitor<select value={filters.competitorId ?? ''} onChange={(event) => {
           const next: AdFilters = { ...filters, productId }
           if (event.target.value) next.competitorId = event.target.value
@@ -443,10 +465,14 @@ function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, o
         }}>
           <option value="">Any status</option><option value="true">Active</option><option value="false">Inactive</option>
         </select></label>
-        <span className="result-count">{ads.length} creatives</span>
+        <label>Media format<select aria-label="Media format" value={mediaFormat} onChange={(event) => setMediaFormat(event.target.value as typeof mediaFormat)}>
+          <option value="all">Any format</option><option value="video">Video</option><option value="image">Image</option><option value="text">Text only</option>
+        </select></label>
+        <label>Started on or after<input aria-label="Started on or after" type="date" value={startedAfter} onChange={(event) => setStartedAfter(event.target.value)} /></label>
+        <span className="result-count" aria-live="polite">{resultLabel}</span>
       </div>
       <div className="ad-grid">
-        {ads.map((ad) => (
+        {visibleAds.map((ad) => (
           <article className="ad-card" key={ad.id}>
             <div className="ad-card-top"><span>{ad.advertiserName}</span><span className={ad.isActive ? 'live-dot' : 'live-dot off'}>{ad.isActive ? 'Live' : 'Inactive'}</span></div>
             <div className="ad-visual">
@@ -454,21 +480,27 @@ function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, o
             </div>
             <div className="ad-copy"><p>{ad.body || 'Visual creative without body copy.'}</p></div>
             <div className="ad-meta"><span>{formatDate(ad.startedAt)}</span><span>{ad.callToAction ?? 'No CTA'}</span></div>
-            <div className="card-actions"><a href={ad.sourceUrl} target="_blank" rel="noreferrer">Source ↗</a><button disabled={pendingBriefAdIds.has(ad.id)} onClick={() => onCreateBrief(ad)}>{pendingBriefAdIds.has(ad.id) ? 'Creating…' : 'Create brief'}</button></div>
+            <div className="card-actions"><a href={ad.sourceUrl} target="_blank" rel="noreferrer">Source ↗</a><button aria-label={`View creative details for ${ad.advertiserName}`} onClick={() => onInspect(ad)}>View</button><button disabled={pendingBriefAdIds.has(ad.id)} onClick={() => onCreateBrief(ad)}>{pendingBriefAdIds.has(ad.id) ? 'Creating…' : 'Create brief'}</button></div>
           </article>
         ))}
-        {ads.length === 0 && <EmptyPanel title="No ads match this view" copy="Adjust the filters or import source records through the API." />}
+        {visibleAds.length === 0 && <EmptyPanel title="No ads match this view" copy="Adjust the filters or import source records through the API." />}
       </div>
     </section>
   )
 }
 
+function creativeMediaFormat(ad: CompetitorAd): 'video' | 'image' | 'text' {
+  if (ad.mediaUrls.some(isVideoUrl)) return 'video'
+  return ad.mediaUrls.length > 0 ? 'image' : 'text'
+}
+
 function AdCreative({ ad }: { ad: CompetitorAd }) {
-  const mediaUrl = ad.mediaUrls[0]
+  const videoUrl = ad.mediaUrls.find(isVideoUrl)
+  const mediaUrl = videoUrl ?? ad.mediaUrls[0]
   if (!mediaUrl) return <span>{initials(ad.advertiserName)}</span>
-  if (isVideoUrl(mediaUrl)) {
-    const poster = ad.mediaUrls.find((url) => url !== mediaUrl && !isVideoUrl(url))
-    return <video controls playsInline preload="metadata" poster={poster} aria-label={`${ad.advertiserName} ad creative`}><source src={mediaUrl} /></video>
+  if (videoUrl) {
+    const poster = ad.mediaUrls.find((url) => !isVideoUrl(url))
+    return <video controls playsInline preload="metadata" poster={poster} aria-label={`${ad.advertiserName} ad creative`}><source src={videoUrl} /></video>
   }
   return <img src={mediaUrl} alt={`${ad.advertiserName} ad creative`} loading="lazy" referrerPolicy="no-referrer" />
 }
@@ -480,6 +512,35 @@ function isVideoUrl(value: string): boolean {
   } catch {
     return false
   }
+}
+
+function CreativeDetailDialog({ ad, pending, onClose, onCreateBrief }: {
+  ad: CompetitorAd
+  pending: boolean
+  onClose: () => void
+  onCreateBrief: (ad: CompetitorAd) => Promise<void>
+}) {
+  return <Dialog title={`${ad.advertiserName} creative`} onClose={onClose} wide>
+    <div className="creative-detail">
+      <div className="creative-detail-media"><AdCreative ad={ad} /></div>
+      <div className="creative-detail-copy">
+        <span className={ad.isActive ? 'status-pill' : 'status-pill muted'}>{ad.isActive ? 'Active' : 'Inactive'}</span>
+        <p>{ad.body || 'Visual creative without body copy.'}</p>
+        <dl>
+          <div><dt>CTA</dt><dd>{ad.callToAction ?? 'Not provided'}</dd></div>
+          <div><dt>Started</dt><dd>{formatDate(ad.startedAt)}</dd></div>
+          <div><dt>First seen</dt><dd>{formatDate(ad.firstSeenAt)}</dd></div>
+          <div><dt>Last seen</dt><dd>{formatDate(ad.lastSeenAt)}</dd></div>
+          <div><dt>Format</dt><dd>{creativeMediaFormat(ad)}</dd></div>
+          <div><dt>Provider</dt><dd>{ad.providerName}</dd></div>
+        </dl>
+        <div className="creative-detail-actions">
+          <a href={ad.sourceUrl} target="_blank" rel="noreferrer">Open original ad</a>
+          <button className="primary-button" disabled={pending} onClick={() => { onClose(); void onCreateBrief(ad) }}>{pending ? 'Creating…' : 'Create brief'}</button>
+        </div>
+      </div>
+    </div>
+  </Dialog>
 }
 
 function BriefsSurface({ briefs, onAdd }: { briefs: CreativeBrief[]; onAdd: () => void }) {
@@ -636,18 +697,26 @@ function BriefDialog({ product, onClose, onSubmit }: {
   </form></Dialog>
 }
 
-function Dialog({ title, onClose, closeDisabled = false, children }: { title: string; onClose: () => void; closeDisabled?: boolean; children: ReactNode }) {
+function Dialog({ title, onClose, closeDisabled = false, wide = false, children }: { title: string; onClose: () => void; closeDisabled?: boolean; wide?: boolean; children: ReactNode }) {
   const dialogRef = useRef<HTMLElement>(null)
+  const onCloseRef = useRef(onClose)
   const closeDisabledRef = useRef(closeDisabled)
+  const restoreFocusTimer = useRef<number | null>(null)
+  const openerRef = useRef<HTMLElement | null>(null)
+  onCloseRef.current = onClose
   closeDisabledRef.current = closeDisabled
-  useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  useLayoutEffect(() => {
+    if (restoreFocusTimer.current !== null) {
+      window.clearTimeout(restoreFocusTimer.current)
+      restoreFocusTimer.current = null
+    }
+    if (openerRef.current === null && document.activeElement instanceof HTMLElement) openerRef.current = document.activeElement
     const dialog = dialogRef.current
     if (!dialog) return
     const focusable = () => [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href]')]
     if (!dialog.contains(document.activeElement)) (dialog.querySelector<HTMLElement>('[data-autofocus]') ?? focusable()[0])?.focus()
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); if (!closeDisabledRef.current) onClose(); return }
+      if (event.key === 'Escape') { event.preventDefault(); if (!closeDisabledRef.current) onCloseRef.current(); return }
       if (event.key !== 'Tab') return
       const controls = focusable()
       if (controls.length === 0) { event.preventDefault(); dialog.focus(); return }
@@ -659,10 +728,10 @@ function Dialog({ title, onClose, closeDisabled = false, children }: { title: st
     document.addEventListener('keydown', keydown)
     return () => {
       document.removeEventListener('keydown', keydown)
-      window.setTimeout(() => previousFocus?.focus(), 0)
+      restoreFocusTimer.current = window.setTimeout(() => openerRef.current?.focus(), 0)
     }
-  }, [onClose])
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (!closeDisabled && event.target === event.currentTarget) onClose() }}><section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" tabIndex={-1}><div className="dialog-heading"><span className="eyebrow">Workspace action</span><h2 id="dialog-title">{title}</h2><button type="button" aria-label="Close dialog" onClick={onClose} disabled={closeDisabled}>×</button></div>{children}</section></div>
+  }, [])
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (!closeDisabled && event.target === event.currentTarget) onClose() }}><section ref={dialogRef} className={wide ? 'dialog wide-dialog' : 'dialog'} role="dialog" aria-modal="true" aria-labelledby="dialog-title" tabIndex={-1}><div className="dialog-heading"><span className="eyebrow">Workspace action</span><h2 id="dialog-title">{title}</h2><button type="button" aria-label="Close dialog" onClick={onClose} disabled={closeDisabled}>×</button></div>{children}</section></div>
 }
 
 function FormError({ message: errorMessage }: { message: string }) {
