@@ -79,7 +79,7 @@ The browser MVP lives in `web/` and builds to `dist/web/`. It connects directly 
 
 ## PostgreSQL and HTTP
 
-Apply `migrations/001_initial.sql` and then `migrations/002_tenant_rls.sql` to an empty PostgreSQL database. The second migration must run under a provisioning account allowed to create `BYPASSRLS` roles. It creates:
+Apply `migrations/001_initial.sql`, `migrations/002_tenant_rls.sql`, `migrations/003_provider_sync_limits.sql`, and `migrations/004_provider_sync_limits_rls.sql` in order to an empty PostgreSQL database. Migration `002` must run under a provisioning account allowed to create `BYPASSRLS` roles. The migrations create:
 
 - restricted `creative_intelligence_runtime` for application access;
 - non-login `creative_intelligence_rls_owner`, which has only schema usage, membership-table read access, and organization-row lock privileges plus `BYPASSRLS`, solely to own the security-definer policy helpers;
@@ -89,7 +89,7 @@ Never grant `creative_intelligence_rls_owner` to the runtime role or application
 
 ### Real PostgreSQL integration suite
 
-`npm run test:postgres` provisions an isolated database and unique login roles, applies both migrations, runs all application queries after assuming the restricted `creative_intelligence_runtime` role, and removes every temporary database and role in `finally`. The suite serializes provisioners with a PostgreSQL advisory lock because migration `002_tenant_rls.sql` intentionally creates two fixed cluster roles.
+`npm run test:postgres` provisions an isolated database and unique login roles, applies all migrations, runs all application queries after assuming the restricted `creative_intelligence_runtime` role, and removes every temporary database and role in `finally`. The suite serializes provisioners with a PostgreSQL advisory lock because migration `002_tenant_rls.sql` intentionally creates two fixed cluster roles.
 
 The harness has fail-closed safety gates:
 
@@ -132,6 +132,8 @@ npm start
 ```
 
 Startup is fail-closed. It validates every bounded runtime setting, constructs only the OIDC authenticator, connects to PostgreSQL, and refuses to serve when `current_user` differs from `DATABASE_RUNTIME_ROLE` or has `SUPERUSER`/`BYPASSRLS`. `DATABASE_URL` must use the restricted application login and assume `creative_intelligence_runtime`; never use a provisioning or migration credential.
+
+Apify ingestion is also fail-closed: all `APIFY_*` settings in `.env.example` are required. `APIFY_API_TOKEN` stays server-side and is sent to the fixed Muppets Actor endpoint only as a Bearer header. `APIFY_AD_COUNT`, response bytes, timeout, country/status filters, and process-wide concurrency are bounded at startup.
 
 Operational endpoints are intentionally unauthenticated and disclose no provider or database details:
 

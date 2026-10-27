@@ -22,6 +22,13 @@ const VALID_ENV = {
   OIDC_AUDIENCES: 'creative-api',
   OIDC_ALGORITHMS: 'RS256',
   OIDC_IDENTITY_NAMESPACE: 'creative_oidc',
+  APIFY_API_TOKEN: 'fixture-apify-credential',
+  APIFY_TIMEOUT_MS: '60000',
+  APIFY_MAX_RESPONSE_BYTES: '5000000',
+  APIFY_AD_COUNT: '100',
+  APIFY_COUNTRY_CODE: 'ALL',
+  APIFY_ACTIVE_STATUS: 'ACTIVE',
+  APIFY_MAX_CONCURRENCY: '2',
 }
 
 test('production start executable is installed with production dependencies', async () => {
@@ -41,6 +48,11 @@ test('runtime configuration fails closed when production authentication settings
   })
 })
 
+test('runtime configuration fails closed when Apify credentials are missing', () => {
+  const { APIFY_API_TOKEN: _missing, ...environment } = VALID_ENV
+  assert.throws(() => parseRuntimeConfig(environment), { message: 'Runtime configuration is invalid' })
+})
+
 test('runtime configuration rejects unsafe database, network, pool, and signing settings', () => {
   const invalid = [
     { PORT: '0' },
@@ -55,6 +67,13 @@ test('runtime configuration rejects unsafe database, network, pool, and signing 
     { CURSOR_SIGNING_KEY: 'short' },
     { OIDC_AUDIENCES: 'one, two' },
     { OIDC_ALGORITHMS: 'HS256' },
+    { APIFY_TIMEOUT_MS: '120001' },
+    { APIFY_API_TOKEN: 'short' },
+    { APIFY_MAX_RESPONSE_BYTES: '999' },
+    { APIFY_AD_COUNT: '101' },
+    { APIFY_COUNTRY_CODE: 'usa' },
+    { APIFY_ACTIVE_STATUS: 'PAUSED' },
+    { APIFY_MAX_CONCURRENCY: '11' },
   ]
   for (const override of invalid) {
     assert.throws(() => parseRuntimeConfig({ ...VALID_ENV, ...override }), {

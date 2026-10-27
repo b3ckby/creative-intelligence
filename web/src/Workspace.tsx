@@ -43,13 +43,17 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
   const [showCompetitorForm, setShowCompetitorForm] = useState(false)
   const [showBriefForm, setShowBriefForm] = useState(false)
   const [adFilters, setAdFilters] = useState<AdFilters>({})
+  const adFiltersRef = useRef<AdFilters>({})
+  adFiltersRef.current = adFilters
   const [productLoadAttempt, setProductLoadAttempt] = useState(0)
   const [productsFailed, setProductsFailed] = useState(false)
   const [pendingBriefAdIds, setPendingBriefAdIds] = useState<Set<string>>(() => new Set())
+  const [pendingSyncCompetitorIds, setPendingSyncCompetitorIds] = useState<Set<string>>(() => new Set())
   const detailRequest = useRef(0)
   const adsRequest = useRef(0)
   const analysisRequest = useRef(0)
   const briefMutationPending = useRef<Set<string>>(new Set())
+  const syncMutationPending = useRef<Set<string>>(new Set())
   const loading = pendingOperations > 0
 
   const selectedProduct = products.find((product) => product.id === selectedProductId) ?? products[0]
@@ -113,6 +117,8 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
     const productId = filters.productId
     if (!productId || productId !== selectedProductRef.current) return
     const requestId = ++adsRequest.current
+    adFiltersRef.current = filters
+    setAdFilters(filters)
     setPendingOperations((count) => count + 1)
     setError('')
     try {
@@ -159,6 +165,31 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
     setBriefs((current) => [created, ...current.filter((brief) => brief.id !== created.id)])
     setShowBriefForm(false)
     setNotice('Draft brief saved.')
+  }
+
+  const syncCompetitorAds = async (competitor: Competitor) => {
+    if (!selectedProduct || !competitor.metaPageUrl || syncMutationPending.current.has(competitor.id)) return
+    syncMutationPending.current = new Set(syncMutationPending.current).add(competitor.id)
+    setPendingSyncCompetitorIds(new Set(syncMutationPending.current))
+    const productId = selectedProduct.id
+    const generation = detailRequest.current
+    setPendingOperations((count) => count + 1)
+    setError('')
+    setNotice('')
+    try {
+      const result = await api.syncApifyMetaAds(productId, competitor.id)
+      if (generation !== detailRequest.current || selectedProductRef.current !== productId) return
+      setNotice(`${result.inserted} new ads imported; ${result.duplicates} already current.`)
+      await reloadAds({ ...adFiltersRef.current, productId })
+    } catch (reason) {
+      if (generation === detailRequest.current && selectedProductRef.current === productId) setError(message(reason))
+    } finally {
+      const pending = new Set(syncMutationPending.current)
+      pending.delete(competitor.id)
+      syncMutationPending.current = pending
+      setPendingSyncCompetitorIds(new Set(pending))
+      setPendingOperations((count) => Math.max(0, count - 1))
+    }
   }
 
   const createBriefFromAd = async (selectedAd: CompetitorAd) => {
@@ -272,7 +303,12 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
           <>
             {surface === 'overview' && <ProductOverview product={selectedProduct} competitors={competitors} ads={ads} briefs={briefs} />}
             {surface === 'competitors' && (
-              <CompetitorsSurface competitors={competitors} onAdd={() => setShowCompetitorForm(true)} />
+              <CompetitorsSurface
+                competitors={competitors}
+                pendingSyncIds={pendingSyncCompetitorIds}
+                onAdd={() => setShowCompetitorForm(true)}
+                onSync={syncCompetitorAds}
+              />
             )}
             {surface === 'ads' && (
               <AdsSurface
@@ -346,7 +382,12 @@ function Metric({ value, label, accent = false }: { value: number; label: string
   return <div className={accent ? 'metric accent' : 'metric'}><strong>{String(value).padStart(2, '0')}</strong><span>{label}</span></div>
 }
 
-function CompetitorsSurface({ competitors, onAdd }: { competitors: Competitor[]; onAdd: () => void }) {
+function CompetitorsSurface({ competitors, pendingSyncIds, onAdd, onSync }: {
+  competitors: Competitor[]
+  pendingSyncIds: ReadonlySet<string>
+  onAdd: () => void
+  onSync: (competitor: Competitor) => Promise<void>
+}) {
   return (
     <section className="surface">
       <SurfaceHeading eyebrow="Competitive set" title="Know who shapes the category." action="Add competitor" onAction={onAdd} />
@@ -356,6 +397,14 @@ function CompetitorsSurface({ competitors, onAdd }: { competitors: Competitor[];
             <span className="row-index">{String(index + 1).padStart(2, '0')}</span>
             <div><h3>{competitor.name}</h3><p>{competitor.metaPageUrl ? new URL(competitor.metaPageUrl).hostname : 'Meta page not linked'}</p></div>
             <span className={competitor.archivedAt ? 'status-pill muted' : 'status-pill'}>{competitor.archivedAt ? 'Archived' : 'Tracking'}</span>
+            {competitor.metaPageUrl && !competitor.archivedAt && (
+              <button
+                className="secondary-button"
+                aria-label={`Sync ads for ${competitor.name}`}
+                disabled={pendingSyncIds.has(competitor.id)}
+                onClick={() => void onSync(competitor)}
+              >{pendingSyncIds.has(competitor.id) ? 'Syncing…' : 'Sync ads'}</button>
+            )}
             {competitor.metaPageUrl && <a href={competitor.metaPageUrl} target="_blank" rel="noreferrer">Open source ↗</a>}
           </article>
         ))}

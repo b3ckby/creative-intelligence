@@ -13,6 +13,15 @@ export interface RuntimeConfig {
   }
   cursorSigningKey: CursorSigningKey
   oidc: OidcAuthenticatorConfig
+  apify: {
+    apiToken: string
+    timeoutMs: number
+    maxResponseBytes: number
+    limit: number
+    countryCode: string
+    activeStatus: 'all' | 'active' | 'inactive'
+    maxConcurrency: number
+  }
 }
 
 export function parseRuntimeConfig(environment: Readonly<Record<string, string | undefined>>): RuntimeConfig {
@@ -42,6 +51,12 @@ export function parseRuntimeConfig(environment: Readonly<Record<string, string |
     }
     const oidc = Object.fromEntries(Object.entries(oidcValues).filter(([, value]) => value !== undefined)) as unknown as OidcAuthenticatorConfig
     createOidcAuthenticator(oidc, { fetch: async () => { throw new Error('not called') } })
+    const activeStatus = required(environment, 'APIFY_ACTIVE_STATUS', 8)
+    if (activeStatus !== 'ALL' && activeStatus !== 'ACTIVE' && activeStatus !== 'INACTIVE') throw new Error('invalid Apify active status')
+    const countryCode = required(environment, 'APIFY_COUNTRY_CODE', 3)
+    if (countryCode !== 'ALL' && !/^[A-Z]{2}$/u.test(countryCode)) throw new Error('invalid Apify country code')
+    const apifyApiToken = required(environment, 'APIFY_API_TOKEN', 4_096)
+    if (apifyApiToken.length < 10) throw new Error('invalid Apify API token')
     return {
       host,
       port,
@@ -54,6 +69,15 @@ export function parseRuntimeConfig(environment: Readonly<Record<string, string |
       },
       cursorSigningKey,
       oidc,
+      apify: {
+        apiToken: apifyApiToken,
+        timeoutMs: integer(environment, 'APIFY_TIMEOUT_MS', 100, 120_000),
+        maxResponseBytes: integer(environment, 'APIFY_MAX_RESPONSE_BYTES', 1_000, 16_777_216),
+        limit: integer(environment, 'APIFY_AD_COUNT', 10, 100),
+        countryCode,
+        activeStatus: activeStatus.toLowerCase() as 'all' | 'active' | 'inactive',
+        maxConcurrency: integer(environment, 'APIFY_MAX_CONCURRENCY', 1, 10),
+      },
     }
   } catch {
     throw new Error('Runtime configuration is invalid')

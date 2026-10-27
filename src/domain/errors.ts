@@ -1,6 +1,6 @@
 export class ApplicationError extends Error {
   constructor(
-    public readonly statusCode: 400 | 401 | 403 | 404 | 409,
+    public readonly statusCode: 400 | 401 | 403 | 404 | 409 | 502 | 503,
     public readonly publicMessage: string,
     internalMessage = publicMessage,
   ) {
@@ -36,6 +36,18 @@ export class ConflictError extends ApplicationError {
 export class NotFoundError extends ApplicationError {
   constructor(internalMessage = 'Resource not found') {
     super(404, 'Not found', internalMessage)
+  }
+}
+
+export class ExternalProviderError extends ApplicationError {
+  constructor() {
+    super(502, 'Ad provider is unavailable')
+  }
+}
+
+export class ServiceUnavailableError extends ApplicationError {
+  constructor() {
+    super(503, 'Service unavailable')
   }
 }
 

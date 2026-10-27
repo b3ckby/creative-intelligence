@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { ConflictError } from '../../src/domain/errors.ts'
 import { OrganizationService } from '../../src/organizations/organization-service.ts'
 import { PostgresOrganizationRepository } from '../../src/persistence/postgres-organization-repository.ts'
+import { PostgresProviderSyncRateLimiter } from '../../src/persistence/postgres-provider-sync-rate-limiter.ts'
 import { withVerifiedUserContext } from '../../src/persistence/verified-user-context.ts'
 import { withRealPostgres } from './helpers/real-postgres.ts'
 
 test('real PostgreSQL migrations enforce runtime RLS', async (t) => {
   await withRealPostgres(async ({ runtimePool, inspectionPool, databaseName, serverVersion }) => {
-    await t.test('applies both migrations to an isolated database', async () => {
+    await t.test('applies all migrations to an isolated database', async () => {
       assert.match(databaseName, /^creative_intelligence_test_[a-f0-9]+$/)
       assert.match(serverVersion, /^18\.(?:\d+)(?:\s|$)/)
       const tables = await runtimePool.query<{ table_name: string }>(`
@@ -24,14 +26,15 @@ test('real PostgreSQL migrations enforce runtime RLS', async (t) => {
         'organization_members',
         'organizations',
         'products',
+        'provider_sync_limits',
       ])
       const security = await inspectionPool.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>(`
         SELECT relname, relrowsecurity, relforcerowsecurity
         FROM pg_class
         WHERE relname = ANY($1::text[])
         ORDER BY relname
-      `, [['organizations', 'organization_members', 'products', 'competitors', 'competitor_ads', 'creative_briefs']])
-      assert.equal(security.rowCount, 6)
+      `, [['organizations', 'organization_members', 'products', 'competitors', 'competitor_ads', 'creative_briefs', 'provider_sync_limits']])
+      assert.equal(security.rowCount, 7)
       assert.ok(security.rows.every(({ relrowsecurity, relforcerowsecurity }) => relrowsecurity && relforcerowsecurity))
     })
 
@@ -66,6 +69,46 @@ test('real PostgreSQL migrations enforce runtime RLS', async (t) => {
         assert.deepEqual(organizationsVisible.rows.map(({ id }) => id), ['org-one'])
         assert.deepEqual(productsVisible.rows.map(({ id }) => id), ['product-one'])
       })
+    })
+
+    await t.test('allows an ordinary organization member to claim a provider cooldown', async () => {
+      await withVerifiedUserContext(runtimePool, 'user-one', async (connection) => {
+        await connection.query(
+          `INSERT INTO organization_members (organization_id, user_id, role)
+           VALUES ('org-one', 'member-one', 'member')`,
+        )
+      })
+      const limiter = new PostgresProviderSyncRateLimiter(runtimePool)
+      await limiter.claim('member-one', 'org-one', 'member-provider')
+    })
+
+    await t.test('uses the database clock for the cooldown timestamp', async () => {
+      const limiter = new PostgresProviderSyncRateLimiter(runtimePool)
+      const before = await runtimePool.query<{ current_time: Date }>(`SELECT clock_timestamp() AS current_time`)
+      await limiter.claim('user-one', 'org-one', 'clock-provider')
+      const stored = await withVerifiedUserContext(runtimePool, 'user-one', async (connection) => connection.query<{ last_started_at: Date }>(
+        `SELECT last_started_at FROM provider_sync_limits
+         WHERE organization_id = 'org-one' AND provider_name = 'clock-provider'`,
+      ))
+      const after = await runtimePool.query<{ current_time: Date }>(`SELECT clock_timestamp() AS current_time`)
+      const storedTime = stored.rows[0]?.last_started_at.getTime()
+      assert.ok(storedTime !== undefined)
+      assert.ok(storedTime >= (before.rows[0]?.current_time.getTime() ?? Number.POSITIVE_INFINITY))
+      assert.ok(storedTime <= (after.rows[0]?.current_time.getTime() ?? Number.NEGATIVE_INFINITY))
+      await assert.rejects(limiter.claim('user-one', 'org-one', 'clock-provider'), ConflictError)
+    })
+
+    await t.test('serializes paid-provider cooldown claims across service instances', async () => {
+      const first = new PostgresProviderSyncRateLimiter(runtimePool)
+      const second = new PostgresProviderSyncRateLimiter(runtimePool)
+      const results = await Promise.allSettled([
+        first.claim('user-one', 'org-one', 'apify-meta-ads'),
+        second.claim('user-one', 'org-one', 'apify-meta-ads'),
+      ])
+      assert.equal(results.filter(({ status }) => status === 'fulfilled').length, 1)
+      const rejected = results.find(({ status }) => status === 'rejected')
+      assert.ok(rejected && rejected.status === 'rejected')
+      assert.ok(rejected.reason instanceof ConflictError)
     })
 
     await t.test('clears verified identity when the transaction ends', async () => {

@@ -34,6 +34,10 @@ export async function createProductionApp(
       cursorSigningKey: config.cursorSigningKey,
       createId: dependencies.createId ?? randomUUID,
       now: dependencies.now ?? (() => new Date()),
+      apify: {
+        ...config.apify,
+        ...(dependencies.fetch ? { fetch: dependencies.fetch } : {}),
+      },
     })
     let readinessProbe: Promise<boolean> | undefined
     const checkReadiness = dependencies.readinessCheck ?? (async () => await checkDatabaseReadiness(config.database))

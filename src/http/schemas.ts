@@ -93,16 +93,18 @@ const AUTHORIZATION_OPERATIONS = new Set([
   'listCompetitors',
   'getCompetitor',
   'importManualMetaAds',
+  'syncApifyMetaAds',
   'listCompetitorAds',
   'listOrganizationAds',
 ])
-const NOT_FOUND_OPERATIONS = new Set(['getProduct', 'getCompetitor', 'getBrief'])
+const NOT_FOUND_OPERATIONS = new Set(['getProduct', 'getCompetitor', 'getBrief', 'syncApifyMetaAds'])
 const CONFLICT_OPERATIONS = new Set([
   'createOrganization',
   'addOrganizationMember',
   'createProduct',
   'createCompetitor',
   'importManualMetaAds',
+  'syncApifyMetaAds',
   'createBriefFromAd',
   'createManualBrief',
 ])
@@ -112,6 +114,10 @@ function errorResponsesFor(method: ApiMethod, operationId: string): Record<numbe
   if (AUTHORIZATION_OPERATIONS.has(operationId)) statuses.add(403)
   if (NOT_FOUND_OPERATIONS.has(operationId)) statuses.add(404)
   if (CONFLICT_OPERATIONS.has(operationId)) statuses.add(409)
+  if (operationId === 'syncApifyMetaAds') {
+    statuses.add(502)
+    statuses.add(503)
+  }
   if (method === 'POST') {
     statuses.add(413)
     statuses.add(415)
@@ -268,6 +274,7 @@ export const API_CONTRACTS: readonly ApiContract[] = [
   route('GET', '/organizations/:organizationId/products/:productId/competitors', '/organizations/{organizationId}/products/{productId}/competitors', 'listCompetitors', 'List competitors', 'Competitors', { params: params('organizationId', 'productId'), querystring: paginationQuery() }, 200, page(competitor)),
   route('GET', '/organizations/:organizationId/products/:productId/competitors/:competitorId', '/organizations/{organizationId}/products/{productId}/competitors/{competitorId}', 'getCompetitor', 'Get a competitor', 'Competitors', { params: params('organizationId', 'productId', 'competitorId'), querystring: detailQuery }, 200, competitor),
   route('POST', '/organizations/:organizationId/products/:productId/competitors/:competitorId/ads/manual-meta', '/organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/manual-meta', 'importManualMetaAds', 'Import Meta ads manually', 'Ads', { params: params('organizationId', 'productId', 'competitorId'), querystring: noQuery, body: strictObject({ records: { type: 'array', minItems: 1, maxItems: 1_000, items: manualAdRecord } }) }, 200, strictObject({ inserted: { type: 'integer', minimum: 0 }, duplicates: { type: 'integer', minimum: 0 } })),
+  route('POST', '/organizations/:organizationId/products/:productId/competitors/:competitorId/ads/apify-meta/sync', '/organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/apify-meta/sync', 'syncApifyMetaAds', 'Synchronize Meta ads through Apify', 'Ads', { params: params('organizationId', 'productId', 'competitorId'), querystring: noQuery }, 200, strictObject({ inserted: { type: 'integer', minimum: 0 }, duplicates: { type: 'integer', minimum: 0 } })),
   route('GET', '/organizations/:organizationId/competitors/:competitorId/ads', '/organizations/{organizationId}/competitors/{competitorId}/ads', 'listCompetitorAds', 'List ads for a competitor', 'Ads', { params: params('organizationId', 'competitorId'), querystring: paginationQuery() }, 200, page(ad)),
   route('GET', '/organizations/:organizationId/ads', '/organizations/{organizationId}/ads', 'listOrganizationAds', 'List and filter organization ads', 'Ads', { params: params('organizationId'), querystring: paginationQuery({ productId: identifier, competitorId: identifier, isActive: { type: 'string', enum: ['true', 'false'] }, provider: { type: 'string', maxLength: 64, pattern: '^[a-z0-9][a-z0-9-]{0,63}$' } }, false) }, 200, page(ad)),
   route('POST', '/organizations/:organizationId/products/:productId/briefs/from-ad', '/organizations/{organizationId}/products/{productId}/briefs/from-ad', 'createBriefFromAd', 'Create a brief from an ad', 'Briefs', { params: params('organizationId', 'productId'), querystring: noQuery, body: strictObject({ adId: identifier, title: normalizedText(500), dimensions: normalizedDimensions }) }, 201, brief),
@@ -385,6 +392,7 @@ function responseDescription(status: number): string {
   if (status === 409) return 'Resource conflict'
   if (status === 413) return 'Payload too large'
   if (status === 415) return 'Unsupported media type'
+  if (status === 502) return 'External provider unavailable'
   if (status === 503) return 'Service unavailable'
   return 'Internal server error'
 }

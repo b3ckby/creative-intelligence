@@ -39,6 +39,7 @@ export interface CreativeIntelligenceApi {
   createProduct(draft: ProductDraft): Promise<Product>
   listCompetitors(productId: string): Promise<Page<Competitor>>
   createCompetitor(productId: string, draft: CompetitorDraft): Promise<Competitor>
+  syncApifyMetaAds(productId: string, competitorId: string): Promise<{ inserted: number; duplicates: number }>
   listAds(filters?: AdFilters): Promise<Page<CompetitorAd>>
   listBriefs(productId: string): Promise<Page<CreativeBrief>>
   createManualBrief(productId: string, draft: ManualBriefDraft): Promise<CreativeBrief>
@@ -110,6 +111,7 @@ export function createApiClient(connection: ApiConnection): CreativeIntelligence
     createProduct: (draft) => request('POST', `${organizationPath}/products`, parseProduct, draft),
     listCompetitors: (productId) => requestAll(`${organizationPath}/products/${segment(productId)}/competitors?limit=${PAGE_LIMIT}`, parseCompetitor),
     createCompetitor: (productId, draft) => request('POST', `${organizationPath}/products/${segment(productId)}/competitors`, parseCompetitor, draft),
+    syncApifyMetaAds: (productId, competitorId) => request('POST', `${organizationPath}/products/${segment(productId)}/competitors/${segment(competitorId)}/ads/apify-meta/sync`, parseImportResult),
     listAds: (filters = {}) => {
       const query = new URLSearchParams({ limit: String(PAGE_LIMIT) })
       if (filters.productId) query.set('productId', filters.productId)
@@ -185,6 +187,12 @@ function parseAd(value: unknown): CompetitorAd {
     isActive: record.isActive, mediaUrls: urlArray(record.mediaUrls, 50), sourceUrl: httpsUrl(record.sourceUrl),
     firstSeenAt: timestamp(record.firstSeenAt), lastSeenAt: timestamp(record.lastSeenAt),
   }
+}
+
+function parseImportResult(value: unknown): { inserted: number; duplicates: number } {
+  const record = exactObject(value, ['inserted', 'duplicates'])
+  if (!Number.isSafeInteger(record.inserted) || (record.inserted as number) < 0 || !Number.isSafeInteger(record.duplicates) || (record.duplicates as number) < 0) throw invalidResponse()
+  return { inserted: record.inserted as number, duplicates: record.duplicates as number }
 }
 
 function parseBrief(value: unknown): CreativeBrief {

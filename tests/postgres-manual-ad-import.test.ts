@@ -4,7 +4,10 @@ import { readFile } from 'node:fs/promises'
 
 import { DataType, newDb } from 'pg-mem'
 import type { ManualMetaAdRecord } from '../src/ad-ingestion/manual-meta-ads-provider.ts'
+import type { AdSourceProvider, CollectedAd } from '../src/ad-ingestion/ad-source-provider.ts'
+import { ConflictError, ExternalProviderError } from '../src/domain/errors.ts'
 import { PostgresManualAdImportService } from '../src/persistence/postgres-manual-ad-import-service.ts'
+import { PostgresProviderAdImportService } from '../src/persistence/postgres-provider-ad-import-service.ts'
 
 const record: ManualMetaAdRecord = {
   externalId: 'meta-shared',
@@ -87,8 +90,50 @@ test('concurrent manual imports reject reuse by another competitor', async () =>
   assert.equal(outcomes.filter((outcome) => outcome.status === 'fulfilled').length, 1)
   const rejected = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
   assert.ok(rejected)
+  assert.ok(rejected.reason instanceof ConflictError)
   assert.match(String(rejected.reason), /already belongs to another product or competitor/i)
   const stored = await pool.query(`SELECT competitor_id FROM competitor_ads WHERE external_id = 'meta-shared'`)
   assert.equal(stored.rowCount, 1)
+  await pool.end()
+})
+
+test('generic provider imports atomically under its trusted registry namespace', async () => {
+  const pool = await database()
+  const imports = new PostgresProviderAdImportService(pool, () => 'ad-apify', () => new Date('2026-10-26T00:00:00.000Z'))
+  const item: CollectedAd = {
+    platform: 'meta', externalId: 'apify-1', advertiserName: 'Orbit', body: 'Copy', callToAction: null,
+    startedAt: '2026-10-01T00:00:00.000Z', isActive: true, mediaUrls: [], sourceUrl: 'https://example.com/ad',
+  }
+  const provider: AdSourceProvider = { collect: async () => [item] }
+
+  assert.deepEqual(await imports.import('user-1', 'apify-meta-ads', { organizationId: 'org-1', productId: 'product-1', competitorId: 'competitor-1' }, provider), { inserted: 1, duplicates: 0 })
+  const apifyStored = await pool.query(`SELECT provider_name FROM competitor_ads WHERE external_id = 'apify-1'`)
+  assert.equal(apifyStored.rows[0]?.provider_name, 'apify-meta-ads')
+  await pool.end()
+})
+
+test('generic provider validates the complete batch before any write', async () => {
+  const pool = await database()
+  const imports = new PostgresProviderAdImportService(pool, () => 'unused', () => new Date('2026-10-26T00:00:00.000Z'))
+  const valid: CollectedAd = {
+    platform: 'meta', externalId: 'valid', advertiserName: 'Orbit', body: 'Copy', callToAction: null,
+    startedAt: '2026-10-01T00:00:00.000Z', isActive: true, mediaUrls: [], sourceUrl: 'https://example.com/ad',
+  }
+  const provider = { collect: async () => [valid, { ...valid, externalId: '' }] } as AdSourceProvider
+
+  await assert.rejects(imports.import('user-1', 'apify-meta-ads', { organizationId: 'org-1', productId: 'product-1', competitorId: 'competitor-1' }, provider), /Provider returned invalid data/)
+  const invalidStored = await pool.query(`SELECT id FROM competitor_ads`)
+  assert.equal(invalidStored.rowCount, 0)
+  await pool.end()
+})
+
+test('generic provider converts upstream failures to one fixed public error', async () => {
+  const pool = await database()
+  const imports = new PostgresProviderAdImportService(pool, () => 'unused', () => new Date())
+  const provider: AdSourceProvider = { collect: async () => { throw new Error('secret upstream URL and credential') } }
+  await assert.rejects(
+    imports.import('user-1', 'apify-meta-ads', { organizationId: 'org-1', productId: 'product-1', competitorId: 'competitor-1' }, provider),
+    (error: unknown) => error instanceof ExternalProviderError && error.publicMessage === 'Ad provider is unavailable' && !error.message.includes('secret'),
+  )
   await pool.end()
 })

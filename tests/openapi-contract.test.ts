@@ -17,6 +17,7 @@ const EXPECTED_OPERATIONS = [
   'GET /organizations/{organizationId}/products/{productId}/competitors',
   'GET /organizations/{organizationId}/products/{productId}/competitors/{competitorId}',
   'POST /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/manual-meta',
+  'POST /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/apify-meta/sync',
   'GET /organizations/{organizationId}/competitors/{competitorId}/ads',
   'GET /organizations/{organizationId}/ads',
   'POST /organizations/{organizationId}/products/{productId}/briefs/from-ad',
@@ -164,6 +165,7 @@ test('operation contracts list only endpoint-reachable error statuses', () => {
   assert.deepEqual(Object.keys(byId.createOrganization!.schema.response).map(Number).sort((a, b) => a - b), [201, 400, 401, 409, 413, 415, 500])
   assert.deepEqual(Object.keys(byId.listProducts!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 500])
   assert.deepEqual(Object.keys(byId.getProduct!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 500])
+  assert.deepEqual(Object.keys(byId.syncApifyMetaAds!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 409, 413, 415, 500, 502, 503])
   for (const operationId of ['createBriefFromAd', 'createManualBrief', 'listBriefs', 'getBrief', 'analyzeIterationMap']) {
     assert.equal(byId[operationId]!.schema.response[403], undefined, operationId)
   }

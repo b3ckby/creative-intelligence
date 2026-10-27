@@ -72,7 +72,7 @@ export async function withRealPostgres<T>(operation: (context: RealPostgresConte
     ownership.databaseCreated = true
 
     databasePool = new Pool({ connectionString: databaseUrl(provisioner.connectionString, databaseName), max: 1 })
-    for (const migration of ['001_initial.sql', '002_tenant_rls.sql']) {
+    for (const migration of ['001_initial.sql', '002_tenant_rls.sql', '003_provider_sync_limits.sql', '004_provider_sync_limits_rls.sql']) {
       const sql = await readFile(new URL(`../../../migrations/${migration}`, import.meta.url), 'utf8')
       await databasePool.query(sql)
       if (migration === '002_tenant_rls.sql') ownership.fixedRolesOwned = true

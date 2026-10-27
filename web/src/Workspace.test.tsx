@@ -32,6 +32,7 @@ function api(): CreativeIntelligenceApi {
     createProduct: vi.fn(),
     listCompetitors: vi.fn().mockResolvedValue({ items: [competitor], nextCursor: null }),
     createCompetitor: vi.fn(),
+    syncApifyMetaAds: vi.fn().mockResolvedValue({ inserted: 0, duplicates: 0 }),
     listAds: vi.fn().mockResolvedValue({ items: [ad], nextCursor: null }),
     listBriefs: vi.fn().mockResolvedValue({ items: [brief], nextCursor: null }),
     createManualBrief: vi.fn().mockResolvedValue(brief),
@@ -61,6 +62,49 @@ describe('Creative Intelligence workspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Competitors' }))
     expect(await screen.findByText('Orbit')).toBeTruthy()
+  })
+
+  it('runs one competitor sync at a time and refreshes ads after success', async () => {
+    const client = api()
+    const pending = deferred<{ inserted: number; duplicates: number }>()
+    vi.mocked(client.syncApifyMetaAds).mockReturnValue(pending.promise)
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Competitors' }))
+    const sync = await screen.findByRole('button', { name: 'Sync ads for Orbit' })
+
+    fireEvent.click(sync)
+    fireEvent.click(sync)
+    expect(client.syncApifyMetaAds).toHaveBeenCalledTimes(1)
+    expect((sync as HTMLButtonElement).disabled).toBe(true)
+    pending.resolve({ inserted: 3, duplicates: 2 })
+
+    expect(await screen.findByText('3 new ads imported; 2 already current.')).toBeTruthy()
+    await waitFor(() => expect(client.listAds).toHaveBeenCalledTimes(2))
+  })
+
+  it('refreshes the latest requested ad filters while that filter request is still pending', async () => {
+    const client = api()
+    const pendingSync = deferred<{ inserted: number; duplicates: number }>()
+    const pendingFilter = deferred<{ items: typeof ad[]; nextCursor: null }>()
+    vi.mocked(client.syncApifyMetaAds).mockReturnValue(pendingSync.promise)
+    vi.mocked(client.listAds)
+      .mockResolvedValueOnce({ items: [ad], nextCursor: null })
+      .mockReturnValueOnce(pendingFilter.promise)
+      .mockResolvedValueOnce({ items: [ad], nextCursor: null })
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    await waitFor(() => expect(client.listAds).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByRole('button', { name: 'Competitors' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync ads for Orbit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
+    fireEvent.change(await screen.findByLabelText('Competitor'), { target: { value: competitor.id } })
+    await waitFor(() => expect(client.listAds).toHaveBeenCalledTimes(2))
+
+    pendingSync.resolve({ inserted: 1, duplicates: 0 })
+    await waitFor(() => expect(client.listAds).toHaveBeenCalledTimes(3))
+    expect(client.listAds).toHaveBeenLastCalledWith({ productId: product.id, competitorId: competitor.id })
+    pendingFilter.resolve({ items: [ad], nextCursor: null })
   })
 
   it('creates a normalized manual brief from the builder', async () => {

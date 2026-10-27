@@ -30,6 +30,17 @@ describe('Creative Intelligence API client', () => {
     })
   })
 
+  it('starts Apify sync without a browser-visible provider credential and validates counts', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ inserted: 3, duplicates: 2 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(createApiClient(connection).syncApifyMetaAds('product/one', 'competitor two')).resolves.toEqual({ inserted: 3, duplicates: 2 })
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.test/organizations/org%20%2F%20north/products/product%2Fone/competitors/competitor%20two/ads/apify-meta/sync',
+      expect.objectContaining({ method: 'POST', headers: { Accept: 'application/json', Authorization: 'Bearer signed.jwt.value' } }),
+    )
+  })
+
   it('surfaces only the API public error envelope', async () => {
     vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       error: 'Access denied',

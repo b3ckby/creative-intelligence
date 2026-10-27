@@ -9,14 +9,17 @@ import { buildApi } from '../src/http/build-api.ts'
 async function testApi(
   ids = ['org-1', 'product-1', 'competitor-1', 'ad-1'],
   authenticate?: (request: FastifyRequest) => Promise<string>,
+  apifyFetch?: typeof fetch,
 ) {
   const db = newDb()
   db.public.registerFunction({ name: 'length', args: [DataType.text], returns: DataType.integer, implementation: (value: string) => value.length })
   db.public.registerFunction({ name: 'trim', args: [DataType.text], returns: DataType.text, implementation: (value: string) => value.trim() })
   db.public.registerFunction({ name: 'set_config', args: [DataType.text, DataType.text, DataType.bool], returns: DataType.text, implementation: (_key: string, value: string) => value })
+  db.public.registerFunction({ name: 'clock_timestamp', returns: DataType.timestamptz, implementation: () => new Date('2026-10-26T00:00:00.000Z') })
   const { Pool } = db.adapters.createPg()
   const pool = new Pool()
   await pool.query(await readFile(new URL('../migrations/001_initial.sql', import.meta.url), 'utf8'))
+  await pool.query(await readFile(new URL('../migrations/003_provider_sync_limits.sql', import.meta.url), 'utf8'))
   const app = buildApi({
     pool,
     cursorSigningKey: 'test-cursor-signing-key-at-least-32-bytes',
@@ -27,6 +30,10 @@ async function testApi(
       if (typeof userId !== 'string') throw new Error('Authentication is required')
       return userId
     }),
+    ...(apifyFetch ? { apify: {
+      apiToken: 'fixture-apify-credential', timeoutMs: 1_000, maxResponseBytes: 100_000,
+      limit: 10, countryCode: 'ALL', activeStatus: 'active' as const, maxConcurrency: 1, fetch: apifyFetch,
+    } } : {}),
   })
   return { app, pool }
 }
@@ -72,6 +79,116 @@ test('REST API persists organization, product, competitor, and manual Meta ad', 
   assert.equal(ads.json().items[0].startedAt, '2026-10-01T00:00:00.000Z')
   assert.equal(ads.json().nextCursor, null)
 
+  await app.close()
+  await pool.end()
+})
+
+test('REST API synchronizes a competitor through the configured Apify actor', async () => {
+  const { app, pool } = await testApi(['org-1', 'product-1', 'competitor-1', 'ad-1'], undefined, async () => new Response(JSON.stringify([{
+    ad_archive_id: 'apify-1', page_name: 'Study Buddy', is_active: true, start_date: 1760227200,
+    snapshot: { body: { text: 'Focus from Apify' }, images: [] },
+  }]), { status: 200, headers: { 'content-type': 'application/json' } }))
+  const auth = { 'x-user-id': 'admin-1' }
+  await app.inject({ method: 'POST', url: '/organizations', headers: auth, payload: { name: 'Creative Team' } })
+  await app.inject({
+    method: 'POST', url: '/organizations/org-1/products', headers: auth,
+    payload: { name: 'Focus Timer', markets: ['US'], platforms: ['web'], targetAudiences: ['students'], uniqueSellingPoints: ['focus'] },
+  })
+  await app.inject({
+    method: 'POST', url: '/organizations/org-1/products/product-1/competitors', headers: auth,
+    payload: { name: 'Study Buddy', metaPageUrl: 'https://www.facebook.com/studybuddy' },
+  })
+
+  const response = await app.inject({
+    method: 'POST', url: '/organizations/org-1/products/product-1/competitors/competitor-1/ads/apify-meta/sync', headers: auth,
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { inserted: 1, duplicates: 0 })
+  const stored = await pool.query(`SELECT provider_name, external_id FROM competitor_ads`)
+  assert.deepEqual(stored.rows, [{ provider_name: 'apify-meta-ads', external_id: 'apify-1' }])
+  await app.close()
+  await pool.end()
+})
+
+test('REST API coalesces concurrent sync requests for the same competitor', async () => {
+  let apifyCalls = 0
+  let release: (() => void) | undefined
+  const pending = new Promise<void>((resolve) => { release = resolve })
+  const apifyFetch: typeof fetch = async () => {
+    apifyCalls += 1
+    await pending
+    return new Response(JSON.stringify([{
+      ad_archive_id: 'apify-1', page_name: 'Study Buddy', is_active: true, start_date: 1760227200,
+      snapshot: { body: { text: 'Focus from Apify' }, images: [] },
+    }]), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  const { app, pool } = await testApi(['org-1', 'product-1', 'competitor-1', 'ad-1'], undefined, apifyFetch)
+  const auth = { 'x-user-id': 'admin-1' }
+  await app.inject({ method: 'POST', url: '/organizations', headers: auth, payload: { name: 'Creative Team' } })
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products', headers: auth, payload: { name: 'Focus Timer', markets: [], platforms: ['web'], targetAudiences: [], uniqueSellingPoints: [] } })
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products/product-1/competitors', headers: auth, payload: { name: 'Study Buddy', metaPageUrl: 'https://www.facebook.com/studybuddy' } })
+  const request = { method: 'POST' as const, url: '/organizations/org-1/products/product-1/competitors/competitor-1/ads/apify-meta/sync', headers: auth }
+
+  const first = app.inject(request)
+  const second = app.inject(request)
+  while (apifyCalls === 0) await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(apifyCalls, 1)
+  release?.()
+  const responses = await Promise.all([first, second])
+  assert.ok(responses.every((response) => response.statusCode === 200))
+  assert.equal(apifyCalls, 1)
+  await app.close()
+  await pool.end()
+})
+
+test('REST API durably rate-limits sequential paid Apify syncs', async () => {
+  let apifyCalls = 0
+  const apifyFetch: typeof fetch = async () => {
+    apifyCalls += 1
+    return new Response(JSON.stringify([{
+      ad_archive_id: 'apify-1', page_name: 'Study Buddy', is_active: true, start_date: 1760227200,
+      snapshot: { body: { text: 'Focus from Apify' }, images: [] },
+    }]), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  const { app, pool } = await testApi(['org-1', 'product-1', 'competitor-1', 'ad-1'], undefined, apifyFetch)
+  const auth = { 'x-user-id': 'admin-1' }
+  await app.inject({ method: 'POST', url: '/organizations', headers: auth, payload: { name: 'Creative Team' } })
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products', headers: auth, payload: { name: 'Focus Timer', markets: [], platforms: ['web'], targetAudiences: [], uniqueSellingPoints: [] } })
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products/product-1/competitors', headers: auth, payload: { name: 'Study Buddy', metaPageUrl: 'https://www.facebook.com/studybuddy' } })
+  const request = { method: 'POST' as const, url: '/organizations/org-1/products/product-1/competitors/competitor-1/ads/apify-meta/sync', headers: auth }
+
+  const first = await app.inject(request)
+  const limited = await app.inject(request)
+
+  assert.equal(first.statusCode, 200)
+  assert.equal(limited.statusCode, 409)
+  assert.deepEqual(limited.json(), { error: 'Resource conflict' })
+  assert.equal(apifyCalls, 1)
+  await app.close()
+  await pool.end()
+})
+
+test('REST API rejects non-Facebook competitor sync URLs as a fixed 400 before calling Apify', async () => {
+  let apifyCalls = 0
+  const apifyFetch: typeof fetch = async () => { apifyCalls += 1; throw new Error('must not be called') }
+  const { app, pool } = await testApi(['org-1', 'product-1', 'competitor-1'], undefined, apifyFetch)
+  const auth = { 'x-user-id': 'admin-1' }
+  await app.inject({ method: 'POST', url: '/organizations', headers: auth, payload: { name: 'Creative Team' } })
+  await app.inject({
+    method: 'POST', url: '/organizations/org-1/products', headers: auth,
+    payload: { name: 'Focus Timer', markets: [], platforms: ['web'], targetAudiences: [], uniqueSellingPoints: [] },
+  })
+  await app.inject({
+    method: 'POST', url: '/organizations/org-1/products/product-1/competitors', headers: auth,
+    payload: { name: 'Study Buddy', metaPageUrl: 'https://example.com/studybuddy' },
+  })
+
+  const response = await app.inject({
+    method: 'POST', url: '/organizations/org-1/products/product-1/competitors/competitor-1/ads/apify-meta/sync', headers: auth,
+  })
+  assert.equal(response.statusCode, 400)
+  assert.deepEqual(response.json(), { error: 'Competitor Meta page URL is invalid' })
+  assert.equal(apifyCalls, 0)
   await app.close()
   await pool.end()
 })

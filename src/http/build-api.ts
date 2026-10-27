@@ -1,7 +1,8 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify'
 
 import type { ManualMetaAdRecord } from '../ad-ingestion/manual-meta-ads-provider.ts'
-import { ApplicationError, AuthenticationError, NotFoundError, ValidationError } from '../domain/errors.ts'
+import { ApifyMetaAdsProvider, ApifyRequestGate, normalizeFacebookPageUrl, type ApifyMetaAdsProviderConfig } from '../ad-ingestion/apify-meta-ads-provider.ts'
+import { ApplicationError, AuthenticationError, NotFoundError, ServiceUnavailableError, ValidationError } from '../domain/errors.ts'
 import { DEFAULT_PAGE_LIMIT, validatePageLimit } from '../domain/page-limit.ts'
 import { normalizeIdentifier, validateIdentifier } from '../domain/identifiers.ts'
 import {
@@ -19,6 +20,8 @@ import { PostgresCatalogRepository } from '../persistence/postgres-catalog-repos
 import { PostgresBriefRepository } from '../persistence/postgres-brief-repository.ts'
 import { PostgresIterationMapRepository } from '../persistence/postgres-iteration-map-repository.ts'
 import { PostgresManualAdImportService } from '../persistence/postgres-manual-ad-import-service.ts'
+import { PostgresProviderAdImportService } from '../persistence/postgres-provider-ad-import-service.ts'
+import { PostgresProviderSyncRateLimiter } from '../persistence/postgres-provider-sync-rate-limiter.ts'
 import { PostgresOrganizationRepository, type SqlPool } from '../persistence/postgres-organization-repository.ts'
 import { cursorScope, decodeCursor, exactCursorTimestamp, pageFromRows, validateCursorSigningKey, type CursorSigningKey } from './pagination.ts'
 import { schemaFor } from './schemas.ts'
@@ -30,6 +33,7 @@ export interface BuildApiOptions {
   now: () => Date
   authenticate: (request: FastifyRequest) => Promise<string>
   cursorSigningKey: CursorSigningKey
+  apify?: Omit<ApifyMetaAdsProviderConfig, 'facebookPageUrl'> & { fetch?: typeof fetch, maxConcurrency: number }
 }
 
 export function buildApi(options: BuildApiOptions): FastifyInstance {
@@ -85,6 +89,10 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
   )
   const catalog = new PostgresCatalogRepository(options.pool)
   const manualAds = new PostgresManualAdImportService(options.pool, options.createId, options.now)
+  const providerAds = new PostgresProviderAdImportService(options.pool, options.createId, options.now)
+  const providerSyncRateLimiter = new PostgresProviderSyncRateLimiter(options.pool)
+  const apifyGate = options.apify ? new ApifyRequestGate(options.apify.maxConcurrency) : undefined
+  const apifySyncs = new Map<string, Promise<{ inserted: number; duplicates: number }>>()
   const briefs = new PostgresBriefRepository(options.pool, options.now, options.createId)
   const iterationMaps = new PostgresIterationMapRepository(options.pool)
 
@@ -260,6 +268,47 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
         throw new ValidationError(error.message, 'Invalid manual ad records')
       }
       throw error
+    }
+  })
+
+  app.post('/organizations/:organizationId/products/:productId/competitors/:competitorId/ads/apify-meta/sync', { schema: schemaFor('syncApifyMetaAds') }, async (request) => {
+    const userId = await actor(request)
+    const organizationId = routeId(request, 'organizationId')
+    const productId = routeId(request, 'productId')
+    const competitorId = routeId(request, 'competitorId')
+    queryParameters(request, [])
+    if (!options.apify) throw new ServiceUnavailableError()
+    await organizations.requireMembership(organizationId, userId)
+    const [product, competitor] = await Promise.all([
+      catalog.findProduct(userId, organizationId, productId),
+      catalog.findCompetitor(userId, organizationId, productId, competitorId),
+    ])
+    if (!product || product.archivedAt !== null || !competitor || competitor.archivedAt !== null) throw new NotFoundError()
+    if (competitor.metaPageUrl === null) throw new ValidationError('Competitor Meta page URL is required')
+    let facebookPageUrl: string
+    try {
+      facebookPageUrl = normalizeFacebookPageUrl(competitor.metaPageUrl)
+    } catch {
+      throw new ValidationError('Competitor Meta page URL is invalid', 'Competitor Meta page URL is invalid')
+    }
+    const { fetch: providerFetch, maxConcurrency: _maxConcurrency, ...apifyConfig } = options.apify
+    const provider = new ApifyMetaAdsProvider(
+      { ...apifyConfig, facebookPageUrl },
+      {
+        ...(providerFetch ? { fetch: providerFetch } : {}),
+        ...(apifyGate ? { gate: apifyGate } : {}),
+        beforeActorStart: async () => providerSyncRateLimiter.claim(userId, organizationId, 'apify-meta-ads'),
+      },
+    )
+    const key = JSON.stringify([organizationId, productId, competitorId])
+    const existing = apifySyncs.get(key)
+    if (existing) return await existing
+    const sync = providerAds.import(userId, 'apify-meta-ads', { organizationId, productId, competitorId }, provider)
+    apifySyncs.set(key, sync)
+    try {
+      return await sync
+    } finally {
+      if (apifySyncs.get(key) === sync) apifySyncs.delete(key)
     }
   })
 

@@ -8,7 +8,7 @@ import { App } from './App.tsx'
 
 const api: CreativeIntelligenceApi = {
   listProducts: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
-  createProduct: vi.fn(), listCompetitors: vi.fn(), createCompetitor: vi.fn(), listAds: vi.fn(), listBriefs: vi.fn(),
+  createProduct: vi.fn(), listCompetitors: vi.fn(), createCompetitor: vi.fn(), syncApifyMetaAds: vi.fn(), listAds: vi.fn(), listBriefs: vi.fn(),
   createManualBrief: vi.fn(), createBriefFromAd: vi.fn(), analyzeIterationMap: vi.fn(),
 }
 
