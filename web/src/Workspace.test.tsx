@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { CreativeIntelligenceApi } from './api.ts'
@@ -236,6 +237,13 @@ describe('Creative Intelligence workspace', () => {
     expect(getComputedStyle(video!).objectFit).toBe('contain')
     expect(video?.getAttribute('poster')).toBe('https://scontent-gru1-2.xx.fbcdn.net/v/t39.35426-6/preview-token')
     expect(video?.querySelector('source')?.getAttribute('src')).toBe('https://video-gru1-1.xx.fbcdn.net/o1/v/t2/f2/m366/opaque-video-token')
+  })
+
+  it('does not force creatives into a cropped card aspect ratio', () => {
+    const styles = readFileSync('web/src/styles.css', 'utf8')
+    expect(styles).not.toMatch(/\.ad-visual\s*\{[^}]*aspect-ratio:\s*4\/3/su)
+    expect(styles).toMatch(/\.ad-visual img[^}]*height:\s*auto/su)
+    expect(styles).toMatch(/\.ad-visual video[^}]*height:\s*auto/su)
   })
 
   it('keeps a submitting dialog open until its mutation settles', async () => {
