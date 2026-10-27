@@ -64,6 +64,20 @@ describe('Creative Intelligence workspace', () => {
     expect(await screen.findByText('Orbit')).toBeTruthy()
   })
 
+  it('shows the complete Meta page URL in the competitor list', async () => {
+    const client = api()
+    const fullMetaPageUrl = 'https://www.facebook.com/profile.php?id=61570484743438'
+    vi.mocked(client.listCompetitors).mockResolvedValue({
+      items: [{ ...competitor, metaPageUrl: fullMetaPageUrl }],
+      nextCursor: null,
+    })
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Competitors' }))
+
+    expect(await screen.findByText(fullMetaPageUrl)).toBeTruthy()
+  })
+
   it('runs one competitor sync at a time and refreshes ads after success', async () => {
     const client = api()
     const pending = deferred<{ inserted: number; duplicates: number }>()

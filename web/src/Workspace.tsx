@@ -395,7 +395,7 @@ function CompetitorsSurface({ competitors, pendingSyncIds, onAdd, onSync }: {
         {competitors.map((competitor, index) => (
           <article key={competitor.id} className="competitor-row">
             <span className="row-index">{String(index + 1).padStart(2, '0')}</span>
-            <div><h3>{competitor.name}</h3><p>{competitor.metaPageUrl ? new URL(competitor.metaPageUrl).hostname : 'Meta page not linked'}</p></div>
+            <div className="competitor-details"><h3>{competitor.name}</h3><p>{competitor.metaPageUrl ?? 'Meta page not linked'}</p></div>
             <span className={competitor.archivedAt ? 'status-pill muted' : 'status-pill'}>{competitor.archivedAt ? 'Archived' : 'Tracking'}</span>
             {competitor.metaPageUrl && !competitor.archivedAt && (
               <button

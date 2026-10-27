@@ -117,9 +117,10 @@ a { color: inherit; }
 
 .competitor-list { border-top: 1px solid var(--ink); }
 .competitor-row { min-height: 116px; display: grid; grid-template-columns: 60px minmax(180px, 1fr) auto auto auto; align-items: center; gap: 20px; padding: 18px 8px; border-bottom: 1px solid var(--line); }
+.competitor-details { min-width: 0; }
 .row-index { color: var(--muted); font: .65rem var(--mono); }
 .competitor-row h3 { margin: 0 0 6px; font: 500 1.8rem var(--serif); }
-.competitor-row p { margin: 0; color: var(--muted); font-size: .78rem; }
+.competitor-row p { margin: 0; overflow-wrap: anywhere; color: var(--muted); font-size: .78rem; }
 .competitor-row a { font: .66rem var(--mono); text-underline-offset: 4px; }
 .status-pill { width: max-content; display: inline-flex; padding: 5px 8px; color: var(--green); background: #deebad; border-radius: 99px; font: 500 .58rem var(--mono); text-transform: uppercase; }
 .status-pill.muted { color: var(--muted); background: #dfddd5; }
