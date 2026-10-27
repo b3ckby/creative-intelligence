@@ -27,6 +27,7 @@ Implemented modules:
 - `organizations` — membership and `admin/member` authorization;
 - `persistence` — PostgreSQL repositories, transactional manual imports, and tenant-safe constraints;
 - `http` — schema-backed Fastify REST API for organizations, products, competitors, ads, briefs, and Iteration Map;
+- `web` — expressive light React workspace for products, competitors, ads, briefs, and Iteration Map coverage;
 - `auth` — fail-closed provider-neutral OIDC/JWKS Bearer authentication;
 - `config` and `server` — validated production composition, restricted-role startup checks, health probes, and graceful shutdown;
 - in-memory repositories for deterministic domain tests plus PostgreSQL integration tests through `pg-mem`.
@@ -51,7 +52,10 @@ npm install
 npm run typecheck
 npm run test:unit
 npm run test:postgres
+npm run test:web
 npm run check:openapi
+npm run typecheck:web
+npm run build:web
 npm run check
 npm start
 ```
@@ -68,6 +72,10 @@ npm run check:openapi
 ```
 
 `npm run check` includes the drift check and fails when the checked-in OpenAPI document no longer matches `src/http/schemas.ts`.
+
+## Frontend workspace
+
+The browser MVP lives in `web/` and builds to `dist/web/`. It connects directly to the existing tenant-safe API and keeps bearer tokens in memory only. Run it locally with `npm run dev:web`; use `npm run build:web` for the production artifact. See [`docs/FRONTEND.md`](docs/FRONTEND.md) for the surfaces, security posture, and same-origin deployment guidance.
 
 ## PostgreSQL and HTTP
 
@@ -136,9 +144,8 @@ The complete endpoint list and field-level contract are maintained in `docs/API.
 
 ## Next slices
 
-1. Product and competitor CRUD UI.
-2. Competitor-ad library with filters.
+1. Production OIDC authorization-code + PKCE login after provider selection.
+2. External Meta collector adapter after provider selection.
 3. Versioned deterministic and AI ad analysis.
 4. Brief version history and workflow statuses.
-5. Iteration Map UI.
-6. External Meta collector adapter after provider selection.
+5. Frontend cursor continuation and richer ad-media inspection.

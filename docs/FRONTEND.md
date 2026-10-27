@@ -1,0 +1,33 @@
+# Frontend MVP
+
+The browser workspace is a Vite/React client for the existing OpenAPI contract. Its primary interaction model is **Operate**: select a product, inspect competitors and ads, create grounded briefs, then analyze Iteration Map coverage.
+
+## Surfaces
+
+- **Products** — product context, competitive metrics, and current signals.
+- **Competitors** — tracked competitive set and canonical source links.
+- **Ad Library** — product, competitor, and active-status filtering; source inspection; brief creation from an ad. External creative media is withheld by default and loads only after an explicit per-ad action, because fetching an API-supplied media URL discloses network metadata to its host.
+- **Brief Builder** — manual briefs and briefs grounded in source ads.
+- **Iteration Map** — audience × market × angle × format coverage and gaps.
+
+The initial connection screen accepts an API base URL, organization ID, and OIDC bearer token. The token stays only in React memory. It is not written to `localStorage`, `sessionStorage`, URLs, logs, or source files. The non-secret API URL and organization ID are remembered locally. Explicit API URLs must use HTTPS, except loopback URLs used for local development.
+
+## Commands
+
+```bash
+npm run dev:web
+npm run test:web
+npm run typecheck:web
+npm run build:web
+npm run preview:web
+```
+
+The production artifact is written to `dist/web/`. `npm run check` runs frontend type checking, browser-unit tests, and a production build in addition to all API and PostgreSQL gates.
+
+## Local and production topology
+
+For local development, start the API on `http://127.0.0.1:3000` and leave the API URL blank. `npm run dev:web` proxies `/organizations` and `/health` to that loopback origin, so bearer requests remain same-origin in the browser and require no permissive CORS policy. To use another local API origin, set `CREATIVE_INTELLIGENCE_DEV_API_URL` before starting Vite; the target must remain trusted because it receives bearer credentials.
+
+For production, serve `dist/web/` and the API behind the same HTTPS origin whenever possible. Leave the API base URL blank in that topology. If the frontend and API use different origins, configure a narrow CORS policy at the trusted edge; never use a wildcard origin with bearer authentication.
+
+The frontend does not implement an identity-provider login redirect yet because no production OIDC provider/client has been selected. It consumes a valid bearer token without persisting it. Provider-specific authorization-code + PKCE belongs in the deployment/authentication slice once issuer, client ID, redirect URI, and logout behavior are fixed.
