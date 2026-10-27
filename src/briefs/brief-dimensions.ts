@@ -21,7 +21,7 @@ export function normalizeBriefDimensions(dimensions: BriefDimensions): BriefDime
 }
 
 export function normalizeDimensionValue(value: unknown, field: string): string {
-  if (typeof value === 'string' && value.trim().length === 0) throw new ValidationError(`Brief dimension ${field} is required`)
-  if (typeof value === 'string' && value.trim().length > 100) throw new ValidationError(`Brief dimension ${field} is too long`)
+  if (typeof value === 'string' && [...value.trim()].length === 0) throw new ValidationError(`Brief dimension ${field} is required`)
+  if (typeof value === 'string' && [...value.trim()].length > 100) throw new ValidationError(`Brief dimension ${field} is too long`)
   return normalizeCanonicalText(value, `Brief dimension ${field}`, { maxLength: 100 })
 }

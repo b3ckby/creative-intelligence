@@ -1,0 +1,4542 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Creative Intelligence API",
+    "version": "0.1.0",
+    "description": "Tenant-safe API for products, competitors, ad intelligence, creative briefs, and iteration planning."
+  },
+  "paths": {
+    "/organizations": {
+      "post": {
+        "operationId": "createOrganization",
+        "summary": "Create an organization",
+        "tags": [
+          "Organizations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "createdAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,198}\\S))\\s*$",
+                    "description": "Leading and trailing whitespace is removed; the normalized value is at most 200 characters."
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/members": {
+      "post": {
+        "operationId": "addOrganizationMember",
+        "summary": "Add or update an organization member",
+        "tags": [
+          "Organizations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,254}\\S))\\s*$",
+                    "description": "Leading and trailing whitespace is removed; the normalized value is at most 256 characters."
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "admin",
+                      "member"
+                    ]
+                  }
+                },
+                "required": [
+                  "userId",
+                  "role"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/products": {
+      "post": {
+        "operationId": "createProduct",
+        "summary": "Create a product",
+        "tags": [
+          "Products"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "organizationId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "maxLength": 300,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "markets": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                      }
+                    },
+                    "platforms": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "ios",
+                          "android",
+                          "web"
+                        ]
+                      }
+                    },
+                    "targetAudiences": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                      }
+                    },
+                    "uniqueSellingPoints": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                      }
+                    },
+                    "archivedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "canonical-javascript-timestamp",
+                          "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "organizationId",
+                    "name",
+                    "markets",
+                    "platforms",
+                    "targetAudiences",
+                    "uniqueSellingPoints",
+                    "archivedAt",
+                    "createdAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,298}\\S))\\s*$",
+                    "description": "Leading and trailing whitespace is removed; the normalized value is at most 300 characters."
+                  },
+                  "markets": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 100,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,498}\\S))\\s*$",
+                      "description": "Leading and trailing whitespace is removed; the normalized value is at most 500 characters."
+                    }
+                  },
+                  "platforms": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "ios",
+                        "android",
+                        "web"
+                      ]
+                    }
+                  },
+                  "targetAudiences": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 100,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,498}\\S))\\s*$",
+                      "description": "Leading and trailing whitespace is removed; the normalized value is at most 500 characters."
+                    }
+                  },
+                  "uniqueSellingPoints": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 100,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,498}\\S))\\s*$",
+                      "description": "Leading and trailing whitespace is removed; the normalized value is at most 500 characters."
+                    }
+                  }
+                },
+                "required": [
+                  "name",
+                  "markets",
+                  "platforms",
+                  "targetAudiences",
+                  "uniqueSellingPoints"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listProducts",
+        "summary": "List products",
+        "tags": [
+          "Products"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192
+            }
+          },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "organizationId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "name": {
+                            "type": "string",
+                            "maxLength": 300,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "markets": {
+                            "type": "array",
+                            "maxItems": 100,
+                            "uniqueItems": true,
+                            "items": {
+                              "type": "string",
+                              "maxLength": 500,
+                              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                            }
+                          },
+                          "platforms": {
+                            "type": "array",
+                            "maxItems": 100,
+                            "uniqueItems": true,
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "ios",
+                                "android",
+                                "web"
+                              ]
+                            }
+                          },
+                          "targetAudiences": {
+                            "type": "array",
+                            "maxItems": 100,
+                            "uniqueItems": true,
+                            "items": {
+                              "type": "string",
+                              "maxLength": 500,
+                              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                            }
+                          },
+                          "uniqueSellingPoints": {
+                            "type": "array",
+                            "maxItems": 100,
+                            "uniqueItems": true,
+                            "items": {
+                              "type": "string",
+                              "maxLength": 500,
+                              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                            }
+                          },
+                          "archivedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "canonical-javascript-timestamp",
+                                "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "canonical-javascript-timestamp",
+                            "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "organizationId",
+                          "name",
+                          "markets",
+                          "platforms",
+                          "targetAudiences",
+                          "uniqueSellingPoints",
+                          "archivedAt",
+                          "createdAt"
+                        ]
+                      }
+                    },
+                    "nextCursor": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 8192
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/products/{productId}": {
+      "get": {
+        "operationId": "getProduct",
+        "summary": "Get a product",
+        "tags": [
+          "Products"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "organizationId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "maxLength": 300,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "markets": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                      }
+                    },
+                    "platforms": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "ios",
+                          "android",
+                          "web"
+                        ]
+                      }
+                    },
+                    "targetAudiences": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                      }
+                    },
+                    "uniqueSellingPoints": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                      }
+                    },
+                    "archivedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "canonical-javascript-timestamp",
+                          "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "organizationId",
+                    "name",
+                    "markets",
+                    "platforms",
+                    "targetAudiences",
+                    "uniqueSellingPoints",
+                    "archivedAt",
+                    "createdAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/products/{productId}/competitors": {
+      "post": {
+        "operationId": "createCompetitor",
+        "summary": "Create a competitor",
+        "tags": [
+          "Competitors"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "organizationId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "productId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "maxLength": 300,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "metaPageUrl": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "format": "canonical-https-url",
+                          "description": "A canonical, bounded WHATWG HTTPS URL with a hostname and without credentials or a fragment."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "archivedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "canonical-javascript-timestamp",
+                          "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "organizationId",
+                    "productId",
+                    "name",
+                    "metaPageUrl",
+                    "archivedAt",
+                    "createdAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,298}\\S))\\s*$",
+                    "description": "Leading and trailing whitespace is removed; the normalized value is at most 300 characters."
+                  },
+                  "metaPageUrl": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 2048,
+                        "format": "canonical-https-url",
+                        "description": "A canonical, bounded WHATWG HTTPS URL with a hostname and without credentials or a fragment."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listCompetitors",
+        "summary": "List competitors",
+        "tags": [
+          "Competitors"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192
+            }
+          },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "organizationId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "productId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "name": {
+                            "type": "string",
+                            "maxLength": 300,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "metaPageUrl": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 2048,
+                                "format": "canonical-https-url",
+                                "description": "A canonical, bounded WHATWG HTTPS URL with a hostname and without credentials or a fragment."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "archivedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "canonical-javascript-timestamp",
+                                "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "canonical-javascript-timestamp",
+                            "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "organizationId",
+                          "productId",
+                          "name",
+                          "metaPageUrl",
+                          "archivedAt",
+                          "createdAt"
+                        ]
+                      }
+                    },
+                    "nextCursor": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 8192
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/products/{productId}/competitors/{competitorId}": {
+      "get": {
+        "operationId": "getCompetitor",
+        "summary": "Get a competitor",
+        "tags": [
+          "Competitors"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "competitorId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "organizationId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "productId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "maxLength": 300,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "metaPageUrl": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "format": "canonical-https-url",
+                          "description": "A canonical, bounded WHATWG HTTPS URL with a hostname and without credentials or a fragment."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "archivedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "canonical-javascript-timestamp",
+                          "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "organizationId",
+                    "productId",
+                    "name",
+                    "metaPageUrl",
+                    "archivedAt",
+                    "createdAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/manual-meta": {
+      "post": {
+        "operationId": "importManualMetaAds",
+        "summary": "Import Meta ads manually",
+        "tags": [
+          "Ads"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "competitorId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "inserted": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "duplicates": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "inserted",
+                    "duplicates"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "records": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1000,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "externalId": {
+                          "type": "string",
+                          "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,254}\\S))\\s*$",
+                          "description": "Leading and trailing whitespace is removed; the normalized value is at most 256 characters."
+                        },
+                        "advertiserName": {
+                          "type": "string",
+                          "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,498}\\S))\\s*$",
+                          "description": "Leading and trailing whitespace is removed; the normalized value is at most 500 characters."
+                        },
+                        "body": {
+                          "type": "string",
+                          "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,19998}\\S))?\\s*$",
+                          "description": "Leading and trailing whitespace is removed; the normalized value is at most 20000 characters."
+                        },
+                        "callToAction": {
+                          "type": "string",
+                          "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                          "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                        },
+                        "startedAt": {
+                          "type": "string",
+                          "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                          "description": "A bounded date string accepted by JavaScript Date parsing and normalized to an ISO instant.",
+                          "format": "parseable-javascript-date"
+                        },
+                        "isActive": {
+                          "type": "boolean"
+                        },
+                        "mediaUrls": {
+                          "type": "array",
+                          "maxItems": 50,
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "string",
+                            "maxLength": 2048,
+                            "format": "canonical-https-url",
+                            "description": "A canonical, bounded WHATWG HTTPS URL with a hostname and without credentials or a fragment."
+                          }
+                        },
+                        "sourceUrl": {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "format": "canonical-https-url",
+                          "description": "A canonical, bounded WHATWG HTTPS URL with a hostname and without credentials or a fragment."
+                        }
+                      },
+                      "required": [
+                        "externalId",
+                        "advertiserName",
+                        "body",
+                        "startedAt",
+                        "isActive",
+                        "mediaUrls",
+                        "sourceUrl"
+                      ],
+                      "anyOf": [
+                        {
+                          "properties": {
+                            "body": {
+                              "type": "string",
+                              "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,19998}\\S))\\s*$",
+                              "description": "Leading and trailing whitespace is removed; the normalized value is at most 20000 characters."
+                            }
+                          },
+                          "required": [
+                            "body"
+                          ]
+                        },
+                        {
+                          "properties": {
+                            "mediaUrls": {
+                              "type": "array",
+                              "minItems": 1
+                            }
+                          },
+                          "required": [
+                            "mediaUrls"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "records"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/competitors/{competitorId}/ads": {
+      "get": {
+        "operationId": "listCompetitorAds",
+        "summary": "List ads for a competitor",
+        "tags": [
+          "Ads"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "competitorId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192
+            }
+          },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "organizationId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "productId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "competitorId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "providerName": {
+                            "type": "string",
+                            "maxLength": 64,
+                            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                          },
+                          "platform": {
+                            "type": "string",
+                            "enum": [
+                              "meta"
+                            ]
+                          },
+                          "externalId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "advertiserName": {
+                            "type": "string",
+                            "maxLength": 500,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "body": {
+                            "type": "string",
+                            "maxLength": 20000,
+                            "pattern": "^(?:$|(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+)$"
+                          },
+                          "callToAction": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "startedAt": {
+                            "type": "string",
+                            "format": "canonical-javascript-timestamp",
+                            "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                          },
+                          "isActive": {
+                            "type": "boolean"
+                          },
+                          "mediaUrls": {
+                            "type": "array",
+                            "maxItems": 50,
+                            "uniqueItems": true,
+                            "items": {
+                              "type": "string",
+                              "maxLength": 2048,
+                              "format": "canonical-https-url",
+                              "description": "A canonical, bounded WHATWG HTTPS URL with a hostname and without credentials or a fragment."
+                            }
+                          },
+                          "sourceUrl": {
+                            "type": "string",
+                            "maxLength": 2048,
+                            "format": "canonical-https-url",
+                            "description": "A canonical, bounded WHATWG HTTPS URL with a hostname and without credentials or a fragment."
+                          },
+                          "firstSeenAt": {
+                            "type": "string",
+                            "format": "canonical-javascript-timestamp",
+                            "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                          },
+                          "lastSeenAt": {
+                            "type": "string",
+                            "format": "canonical-javascript-timestamp",
+                            "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "organizationId",
+                          "productId",
+                          "competitorId",
+                          "providerName",
+                          "platform",
+                          "externalId",
+                          "advertiserName",
+                          "body",
+                          "callToAction",
+                          "startedAt",
+                          "isActive",
+                          "mediaUrls",
+                          "sourceUrl",
+                          "firstSeenAt",
+                          "lastSeenAt"
+                        ]
+                      }
+                    },
+                    "nextCursor": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 8192
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/ads": {
+      "get": {
+        "operationId": "listOrganizationAds",
+        "summary": "List and filter organization ads",
+        "tags": [
+          "Ads"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192
+            }
+          },
+          {
+            "name": "productId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "competitorId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "isActive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "organizationId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "productId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "competitorId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "providerName": {
+                            "type": "string",
+                            "maxLength": 64,
+                            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                          },
+                          "platform": {
+                            "type": "string",
+                            "enum": [
+                              "meta"
+                            ]
+                          },
+                          "externalId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "advertiserName": {
+                            "type": "string",
+                            "maxLength": 500,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "body": {
+                            "type": "string",
+                            "maxLength": 20000,
+                            "pattern": "^(?:$|(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+)$"
+                          },
+                          "callToAction": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "startedAt": {
+                            "type": "string",
+                            "format": "canonical-javascript-timestamp",
+                            "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                          },
+                          "isActive": {
+                            "type": "boolean"
+                          },
+                          "mediaUrls": {
+                            "type": "array",
+                            "maxItems": 50,
+                            "uniqueItems": true,
+                            "items": {
+                              "type": "string",
+                              "maxLength": 2048,
+                              "format": "canonical-https-url",
+                              "description": "A canonical, bounded WHATWG HTTPS URL with a hostname and without credentials or a fragment."
+                            }
+                          },
+                          "sourceUrl": {
+                            "type": "string",
+                            "maxLength": 2048,
+                            "format": "canonical-https-url",
+                            "description": "A canonical, bounded WHATWG HTTPS URL with a hostname and without credentials or a fragment."
+                          },
+                          "firstSeenAt": {
+                            "type": "string",
+                            "format": "canonical-javascript-timestamp",
+                            "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                          },
+                          "lastSeenAt": {
+                            "type": "string",
+                            "format": "canonical-javascript-timestamp",
+                            "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "organizationId",
+                          "productId",
+                          "competitorId",
+                          "providerName",
+                          "platform",
+                          "externalId",
+                          "advertiserName",
+                          "body",
+                          "callToAction",
+                          "startedAt",
+                          "isActive",
+                          "mediaUrls",
+                          "sourceUrl",
+                          "firstSeenAt",
+                          "lastSeenAt"
+                        ]
+                      }
+                    },
+                    "nextCursor": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 8192
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/products/{productId}/briefs/from-ad": {
+      "post": {
+        "operationId": "createBriefFromAd",
+        "summary": "Create a brief from an ad",
+        "tags": [
+          "Briefs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "organizationId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "productId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "title": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "triage",
+                        "approved",
+                        "production",
+                        "review",
+                        "completed",
+                        "archived"
+                      ]
+                    },
+                    "sourceAdId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 256,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "hook": {
+                      "type": "string",
+                      "maxLength": 20000,
+                      "pattern": "^(?:$|(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+)$"
+                    },
+                    "callToAction": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "dimensions": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "audience": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "market": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "angle": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "format": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        }
+                      },
+                      "required": [
+                        "audience",
+                        "market",
+                        "angle",
+                        "format"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "organizationId",
+                    "productId",
+                    "title",
+                    "status",
+                    "sourceAdId",
+                    "hook",
+                    "callToAction",
+                    "dimensions",
+                    "createdAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "adId": {
+                    "type": "string",
+                    "maxLength": 256,
+                    "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                  },
+                  "title": {
+                    "type": "string",
+                    "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,498}\\S))\\s*$",
+                    "description": "Leading and trailing whitespace is removed; the normalized value is at most 500 characters."
+                  },
+                  "dimensions": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "audience": {
+                        "type": "string",
+                        "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                        "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                      },
+                      "market": {
+                        "type": "string",
+                        "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                        "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                      },
+                      "angle": {
+                        "type": "string",
+                        "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                        "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                      },
+                      "format": {
+                        "type": "string",
+                        "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                        "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                      }
+                    },
+                    "required": [
+                      "audience",
+                      "market",
+                      "angle",
+                      "format"
+                    ]
+                  }
+                },
+                "required": [
+                  "adId",
+                  "title",
+                  "dimensions"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/products/{productId}/briefs": {
+      "post": {
+        "operationId": "createManualBrief",
+        "summary": "Create a manual brief",
+        "tags": [
+          "Briefs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "organizationId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "productId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "title": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "triage",
+                        "approved",
+                        "production",
+                        "review",
+                        "completed",
+                        "archived"
+                      ]
+                    },
+                    "sourceAdId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 256,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "hook": {
+                      "type": "string",
+                      "maxLength": 20000,
+                      "pattern": "^(?:$|(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+)$"
+                    },
+                    "callToAction": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "dimensions": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "audience": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "market": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "angle": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "format": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        }
+                      },
+                      "required": [
+                        "audience",
+                        "market",
+                        "angle",
+                        "format"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "organizationId",
+                    "productId",
+                    "title",
+                    "status",
+                    "sourceAdId",
+                    "hook",
+                    "callToAction",
+                    "dimensions",
+                    "createdAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,498}\\S))\\s*$",
+                    "description": "Leading and trailing whitespace is removed; the normalized value is at most 500 characters."
+                  },
+                  "hook": {
+                    "type": "string",
+                    "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,19998}\\S))?\\s*$",
+                    "description": "Leading and trailing whitespace is removed; the normalized value is at most 20000 characters."
+                  },
+                  "callToAction": {
+                    "type": "string",
+                    "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                    "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                  },
+                  "dimensions": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "audience": {
+                        "type": "string",
+                        "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                        "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                      },
+                      "market": {
+                        "type": "string",
+                        "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                        "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                      },
+                      "angle": {
+                        "type": "string",
+                        "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                        "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                      },
+                      "format": {
+                        "type": "string",
+                        "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                        "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                      }
+                    },
+                    "required": [
+                      "audience",
+                      "market",
+                      "angle",
+                      "format"
+                    ]
+                  }
+                },
+                "required": [
+                  "title",
+                  "hook",
+                  "dimensions"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listBriefs",
+        "summary": "List briefs for a product",
+        "tags": [
+          "Briefs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192
+            }
+          },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "organizationId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "productId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "title": {
+                            "type": "string",
+                            "maxLength": 500,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "draft",
+                              "triage",
+                              "approved",
+                              "production",
+                              "review",
+                              "completed",
+                              "archived"
+                            ]
+                          },
+                          "sourceAdId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 256,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "hook": {
+                            "type": "string",
+                            "maxLength": 20000,
+                            "pattern": "^(?:$|(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+)$"
+                          },
+                          "callToAction": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "dimensions": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "audience": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              "market": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              "angle": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              "format": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              }
+                            },
+                            "required": [
+                              "audience",
+                              "market",
+                              "angle",
+                              "format"
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "canonical-javascript-timestamp",
+                            "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "organizationId",
+                          "productId",
+                          "title",
+                          "status",
+                          "sourceAdId",
+                          "hook",
+                          "callToAction",
+                          "dimensions",
+                          "createdAt"
+                        ]
+                      }
+                    },
+                    "nextCursor": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 8192
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/briefs/{briefId}": {
+      "get": {
+        "operationId": "getBrief",
+        "summary": "Get a brief",
+        "tags": [
+          "Briefs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "briefId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "organizationId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "productId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "title": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "triage",
+                        "approved",
+                        "production",
+                        "review",
+                        "completed",
+                        "archived"
+                      ]
+                    },
+                    "sourceAdId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 256,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "hook": {
+                      "type": "string",
+                      "maxLength": 20000,
+                      "pattern": "^(?:$|(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+)$"
+                    },
+                    "callToAction": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "dimensions": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "audience": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "market": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "angle": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "format": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        }
+                      },
+                      "required": [
+                        "audience",
+                        "market",
+                        "angle",
+                        "format"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "organizationId",
+                    "productId",
+                    "title",
+                    "status",
+                    "sourceAdId",
+                    "hook",
+                    "callToAction",
+                    "dimensions",
+                    "createdAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/products/{productId}/iteration-map/analyze": {
+      "post": {
+        "operationId": "analyzeIterationMap",
+        "summary": "Analyze Iteration Map coverage",
+        "tags": [
+          "Iteration Map"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "totalCombinations": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 10000
+                    },
+                    "covered": {
+                      "type": "array",
+                      "maxItems": 10000,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "dimensions": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "audience": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              "market": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              "angle": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              "format": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              }
+                            },
+                            "required": [
+                              "audience",
+                              "market",
+                              "angle",
+                              "format"
+                            ]
+                          },
+                          "briefIds": {
+                            "type": "array",
+                            "maxItems": 10000,
+                            "items": {
+                              "type": "string",
+                              "maxLength": 256,
+                              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                            }
+                          }
+                        },
+                        "required": [
+                          "dimensions",
+                          "briefIds"
+                        ]
+                      }
+                    },
+                    "missing": {
+                      "type": "array",
+                      "maxItems": 10000,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "dimensions": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "audience": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              "market": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              "angle": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              "format": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              }
+                            },
+                            "required": [
+                              "audience",
+                              "market",
+                              "angle",
+                              "format"
+                            ]
+                          },
+                          "briefIds": {
+                            "type": "array",
+                            "maxItems": 10000,
+                            "items": {
+                              "type": "string",
+                              "maxLength": 256,
+                              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                            }
+                          }
+                        },
+                        "required": [
+                          "dimensions",
+                          "briefIds"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "totalCombinations",
+                    "covered",
+                    "missing"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "axes": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "audience": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 50,
+                        "items": {
+                          "type": "string",
+                          "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                          "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                        }
+                      },
+                      "market": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 50,
+                        "items": {
+                          "type": "string",
+                          "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                          "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                        }
+                      },
+                      "angle": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 50,
+                        "items": {
+                          "type": "string",
+                          "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                          "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                        }
+                      },
+                      "format": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 50,
+                        "items": {
+                          "type": "string",
+                          "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                          "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                        }
+                      }
+                    },
+                    "required": [
+                      "audience",
+                      "market",
+                      "angle",
+                      "format"
+                    ],
+                    "x-maxCartesianProduct": 10000,
+                    "description": "The product of the four normalized, de-duplicated axis lengths must not exceed 10,000."
+                  }
+                },
+                "required": [
+                  "axes"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "getLiveness",
+        "summary": "Check process liveness",
+        "tags": [
+          "Operations"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "getReadiness",
+        "summary": "Check database readiness",
+        "tags": [
+          "Operations"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ready"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "not_ready"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  }
+}

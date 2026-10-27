@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import { createOidcAuthenticator, type OidcAuthenticatorDependencies } from './auth/oidc-authenticator.ts'
 import type { RuntimeConfig } from './config/runtime-config.ts'
 import { buildApi } from './http/build-api.ts'
+import { schemaFor } from './http/schemas.ts'
 import { checkDatabaseReadiness, createPostgresPool, verifyRuntimeDatabase, type RuntimeSqlPool } from './persistence/postgres-pool.ts'
 
 export interface ProductionAppDependencies extends OidcAuthenticatorDependencies {
@@ -43,8 +44,8 @@ export async function createProductionApp(
       return readinessProbe
     }
 
-    app.get('/health/live', async () => ({ status: 'ok' }))
-    app.get('/health/ready', async (_request, reply) => {
+    app.get('/health/live', { schema: schemaFor('getLiveness') }, async () => ({ status: 'ok' }))
+    app.get('/health/ready', { schema: schemaFor('getReadiness') }, async (_request, reply) => {
       const isReady = await ready()
       return reply.code(isReady ? 200 : 503).send({ status: isReady ? 'ready' : 'not_ready' })
     })

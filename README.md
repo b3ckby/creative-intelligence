@@ -26,7 +26,7 @@ Implemented modules:
 - `iteration-map` — covered and missing combinations across audience, market, angle, and format;
 - `organizations` — membership and `admin/member` authorization;
 - `persistence` — PostgreSQL repositories, transactional manual imports, and tenant-safe constraints;
-- `http` — injectable Fastify REST API for organizations, products, competitors, and manual Meta ads;
+- `http` — schema-backed Fastify REST API for organizations, products, competitors, ads, briefs, and Iteration Map;
 - `auth` — fail-closed provider-neutral OIDC/JWKS Bearer authentication;
 - `config` and `server` — validated production composition, restricted-role startup checks, health probes, and graceful shutdown;
 - in-memory repositories for deterministic domain tests plus PostgreSQL integration tests through `pg-mem`.
@@ -51,9 +51,23 @@ npm install
 npm run typecheck
 npm run test:unit
 npm run test:postgres
+npm run check:openapi
 npm run check
 npm start
 ```
+
+## API contract
+
+[`docs/openapi.json`](docs/openapi.json) is generated deterministically from the same schemas Fastify applies to requests and responses. [`docs/API.md`](docs/API.md) explains authentication, pagination, sanitized errors, filters, and operational endpoints.
+
+After changing a route contract:
+
+```bash
+npm run generate:openapi
+npm run check:openapi
+```
+
+`npm run check` includes the drift check and fails when the checked-in OpenAPI document no longer matches `src/http/schemas.ts`.
 
 ## PostgreSQL and HTTP
 
@@ -118,21 +132,13 @@ Operational endpoints are intentionally unauthenticated and disclose no provider
 
 `SIGINT` and `SIGTERM` stop Fastify and close the PostgreSQL pool once. All business routes require an exact OIDC Bearer token; `x-user-id`, cookies, and query parameters are never production authentication sources.
 
-Implemented endpoints:
-
-- `POST /organizations`;
-- `POST /organizations/:organizationId/members` (admin only);
-- `GET|POST /organizations/:organizationId/products`;
-- `GET|POST /organizations/:organizationId/products/:productId/competitors`;
-- `POST /organizations/:organizationId/products/:productId/competitors/:competitorId/ads/manual-meta`;
-- `GET /organizations/:organizationId/competitors/:competitorId/ads`.
+The complete endpoint list and field-level contract are maintained in `docs/API.md` and `docs/openapi.json`.
 
 ## Next slices
 
 1. Product and competitor CRUD UI.
-2. Formal generated OpenAPI contract.
-3. Competitor-ad library with filters.
-4. Versioned deterministic and AI ad analysis.
-5. Brief version history and workflow statuses.
-6. Iteration Map UI.
-7. External Meta collector adapter after provider selection.
+2. Competitor-ad library with filters.
+3. Versioned deterministic and AI ad analysis.
+4. Brief version history and workflow statuses.
+5. Iteration Map UI.
+6. External Meta collector adapter after provider selection.

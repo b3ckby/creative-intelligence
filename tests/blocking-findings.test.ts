@@ -6,7 +6,7 @@ import { DataType, newDb } from 'pg-mem'
 import type { FastifyRequest } from 'fastify'
 import { decodeAdRow, decodeCompetitorRow, decodeProductRow } from '../src/persistence/catalog-row-decoders.ts'
 import { buildApi } from '../src/http/build-api.ts'
-import { decodeCursor, encodeCursor } from '../src/http/pagination.ts'
+import { cursorScope, decodeCursor, encodeCursor } from '../src/http/pagination.ts'
 
 async function testApi(ids = ['org-1', 'product-1', 'competitor-1', 'ad-1', 'ad-2']) {
   const db = newDb()
@@ -273,6 +273,16 @@ test('pagination cursors authenticate canonical payload, scope, timestamp, and i
   const context = '{"endpoint":"products","organizationId":"org-1"}'
   const cursor = encodeCursor({ createdAt: '1792972800.123456', id: 'product-1' }, context, key)
   assert.deepEqual(decodeCursor(cursor, context, key), { createdAt: '1792972800.123456', id: 'product-1' })
+
+  const unicodeId = '😀'.repeat(256)
+  const unicodeContext = cursorScope('products', { organizationId: '😀'.repeat(256), includeArchived: false })
+  const unicodeCursor = encodeCursor({ createdAt: '1792972800.123456', id: unicodeId }, unicodeContext, key)
+  assert.ok(unicodeCursor.length > 2_048)
+  assert.deepEqual(decodeCursor(unicodeCursor, unicodeContext, key), { createdAt: '1792972800.123456', id: unicodeId })
+  assert.throws(
+    () => encodeCursor({ createdAt: '1792972800.123456', id: unicodeId }, 'x'.repeat(8_192), key),
+    /cursor/i,
+  )
 
   const [payload, signature] = cursor.split('.')
   assert.ok(payload && signature)

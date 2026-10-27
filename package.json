@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/server.ts",
+    "generate:openapi": "tsx scripts/generate-openapi.ts",
+    "check:openapi": "tsx scripts/check-openapi.ts",
     "test": "npm run test:unit",
     "test:unit": "tsx --test tests/*.test.ts",
     "test:postgres": "tsx --test --test-concurrency=1 tests/postgres/*.integration.test.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm run test:unit && npm run test:postgres"
+    "check": "npm run check:openapi && npm run typecheck && npm run test:unit && npm run test:postgres"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",

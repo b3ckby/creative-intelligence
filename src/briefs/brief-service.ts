@@ -34,8 +34,8 @@ function inputRecord(value: unknown): Record<string, unknown> {
 }
 
 function normalizeBriefTitle(value: unknown): string {
-  if (typeof value !== 'string' || value.trim().length === 0) throw new ValidationError('Brief title is required')
-  if (value.trim().length > 500) throw new ValidationError('Brief title is too long')
+  if (typeof value !== 'string' || [...value.trim()].length === 0) throw new ValidationError('Brief title is required')
+  if ([...value.trim()].length > 500) throw new ValidationError('Brief title is too long')
   return normalizeCanonicalText(value, 'Brief title', { maxLength: 500 })
 }
 

@@ -5,6 +5,9 @@ import { ApplicationError, AuthenticationError, NotFoundError, ValidationError }
 import { DEFAULT_PAGE_LIMIT, validatePageLimit } from '../domain/page-limit.ts'
 import { normalizeIdentifier, validateIdentifier } from '../domain/identifiers.ts'
 import {
+  isCanonicalHttpsUrl,
+  isCanonicalJavascriptTimestamp,
+  isNormalizedParseableDate,
   normalizeCanonicalText,
   normalizeCanonicalTextArray,
   validateCanonicalHttpsUrl,
@@ -18,6 +21,7 @@ import { PostgresIterationMapRepository } from '../persistence/postgres-iteratio
 import { PostgresManualAdImportService } from '../persistence/postgres-manual-ad-import-service.ts'
 import { PostgresOrganizationRepository, type SqlPool } from '../persistence/postgres-organization-repository.ts'
 import { cursorScope, decodeCursor, exactCursorTimestamp, pageFromRows, validateCursorSigningKey, type CursorSigningKey } from './pagination.ts'
+import { schemaFor } from './schemas.ts'
 import { parseStrictJson } from './strict-json.ts'
 
 export interface BuildApiOptions {
@@ -30,7 +34,43 @@ export interface BuildApiOptions {
 
 export function buildApi(options: BuildApiOptions): FastifyInstance {
   validateCursorSigningKey(options.cursorSigningKey)
-  const app = Fastify({ logger: false })
+  const customFormats = {
+    'canonical-https-url': isCanonicalHttpsUrl,
+    'parseable-javascript-date': isNormalizedParseableDate,
+    'canonical-javascript-timestamp': isCanonicalJavascriptTimestamp,
+  }
+  const app = Fastify({
+    logger: false,
+    serializerOpts: { ajv: { formats: customFormats } },
+    ajv: {
+      onCreate: (ajv) => {
+        ajv.addKeyword({
+          keyword: 'x-maxCartesianProduct',
+          schemaType: 'number',
+          type: 'object',
+          validate: (maximum: number, value: unknown) => {
+            if (typeof value !== 'object' || value === null || Array.isArray(value)) return true
+            const record = value as Record<string, unknown>
+            const lengths = ['audience', 'market', 'angle', 'format'].map((name) => {
+              const axis = record[name]
+              if (!Array.isArray(axis)) return 1
+              try {
+                return new Set(axis.map((item) => normalizeCanonicalText(item, `Iteration axis ${name}`, { maxLength: 100 }))).size
+              } catch {
+                return 1
+              }
+            })
+            return lengths.reduce((product, length) => product * length, 1) <= maximum
+          },
+        })
+      },
+      customOptions: {
+        removeAdditional: false,
+        coerceTypes: false,
+        formats: customFormats,
+      },
+    },
+  })
   app.removeContentTypeParser('application/json')
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (_request, body, done) => {
     try {
@@ -48,20 +88,32 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
   const briefs = new PostgresBriefRepository(options.pool, options.now, options.createId)
   const iterationMaps = new PostgresIterationMapRepository(options.pool)
 
-  const actor = async (request: FastifyRequest): Promise<string> => {
+  const authenticatedUsers = new WeakMap<FastifyRequest, string>()
+  app.addHook('onRequest', async (request) => {
+    const routeSchema = request.routeOptions.schema as { security?: unknown } | undefined
+    if (!Array.isArray(routeSchema?.security) || routeSchema.security.length === 0) return
     try {
       const userId = await options.authenticate(request)
-      return validateIdentifier(userId, 'Authenticated user ID')
+      authenticatedUsers.set(request, validateIdentifier(userId, 'Authenticated user ID'))
     } catch {
       throw new AuthenticationError()
     }
+  })
+
+  const actor = async (request: FastifyRequest): Promise<string> => {
+    const userId = authenticatedUsers.get(request)
+    if (!userId) throw new AuthenticationError()
+    return userId
   }
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     if (error instanceof ApplicationError) return reply.code(error.statusCode).send({ error: error.publicMessage })
     if (isPostgresUniqueViolation(error)) return reply.code(409).send({ error: 'Resource conflict' })
     const clientStatus = fastifyClientStatus(error)
     if (clientStatus !== undefined) {
+      if (clientStatus === 400 && (request.routeOptions.schema as { operationId?: unknown } | undefined)?.operationId === 'importManualMetaAds') {
+        return reply.code(400).send({ error: manualAdValidationMessage(error) })
+      }
       const publicMessage = clientStatus === 413 ? 'Payload too large'
         : clientStatus === 415 ? 'Unsupported media type'
           : clientStatus === 404 ? 'Not found' : 'Invalid request'
@@ -72,7 +124,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
 
   app.setNotFoundHandler((_request, reply) => reply.code(404).send({ error: 'Not found' }))
 
-  app.post('/organizations', async (request, reply) => {
+  app.post('/organizations', { schema: schemaFor('createOrganization') }, async (request, reply) => {
     const actorUserId = await actor(request)
     queryParameters(request, [])
     const body = exactRecord(request.body, ['name'])
@@ -80,7 +132,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return reply.code(201).send(organization)
   })
 
-  app.post('/organizations/:organizationId/members', async (request, reply) => {
+  app.post('/organizations/:organizationId/members', { schema: schemaFor('addOrganizationMember') }, async (request, reply) => {
     const actorUserId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
     queryParameters(request, [])
@@ -96,7 +148,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return reply.code(204).send()
   })
 
-  app.post('/organizations/:organizationId/products', async (request, reply) => {
+  app.post('/organizations/:organizationId/products', { schema: schemaFor('createProduct') }, async (request, reply) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
     queryParameters(request, [])
@@ -117,7 +169,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return reply.code(201).send(product)
   })
 
-  app.get('/organizations/:organizationId/products', async (request) => {
+  app.get('/organizations/:organizationId/products', { schema: schemaFor('listProducts') }, async (request) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
     const scope = (includeArchived: boolean) => cursorScope('products', { organizationId, includeArchived })
@@ -127,7 +179,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return pageFromRows(rows, page.limit, scope(page.includeArchived), options.cursorSigningKey, (product) => exactCursorTimestamp(product, product.createdAt))
   })
 
-  app.get('/organizations/:organizationId/products/:productId', async (request) => {
+  app.get('/organizations/:organizationId/products/:productId', { schema: schemaFor('getProduct') }, async (request) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
     const productId = routeId(request, 'productId')
@@ -139,7 +191,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return product
   })
 
-  app.post('/organizations/:organizationId/products/:productId/competitors', async (request, reply) => {
+  app.post('/organizations/:organizationId/products/:productId/competitors', { schema: schemaFor('createCompetitor') }, async (request, reply) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
     const productId = routeId(request, 'productId')
@@ -159,7 +211,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return reply.code(201).send(competitor)
   })
 
-  app.get('/organizations/:organizationId/products/:productId/competitors', async (request) => {
+  app.get('/organizations/:organizationId/products/:productId/competitors', { schema: schemaFor('listCompetitors') }, async (request) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
     const productId = routeId(request, 'productId')
@@ -170,7 +222,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return pageFromRows(rows, page.limit, scope(page.includeArchived), options.cursorSigningKey, (competitor) => exactCursorTimestamp(competitor, competitor.createdAt))
   })
 
-  app.get('/organizations/:organizationId/products/:productId/competitors/:competitorId', async (request) => {
+  app.get('/organizations/:organizationId/products/:productId/competitors/:competitorId', { schema: schemaFor('getCompetitor') }, async (request) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
     const productId = routeId(request, 'productId')
@@ -184,7 +236,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return competitor
   })
 
-  app.post('/organizations/:organizationId/products/:productId/competitors/:competitorId/ads/manual-meta', async (request) => {
+  app.post('/organizations/:organizationId/products/:productId/competitors/:competitorId/ads/manual-meta', { schema: schemaFor('importManualMetaAds') }, async (request) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
     const productId = routeId(request, 'productId')
@@ -211,7 +263,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     }
   })
 
-  app.get('/organizations/:organizationId/competitors/:competitorId/ads', async (request) => {
+  app.get('/organizations/:organizationId/competitors/:competitorId/ads', { schema: schemaFor('listCompetitorAds') }, async (request) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
     const competitorId = routeId(request, 'competitorId')
@@ -222,7 +274,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return pageFromRows(rows, page.limit, scope(page.includeArchived), options.cursorSigningKey, (ad) => exactCursorTimestamp(ad, ad.firstSeenAt))
   })
 
-  app.get('/organizations/:organizationId/ads', async (request) => {
+  app.get('/organizations/:organizationId/ads', { schema: schemaFor('listOrganizationAds') }, async (request) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
     const scopeFor = (query: URLSearchParams, includeArchived: boolean) => cursorScope('organization-ads', {
@@ -251,7 +303,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return pageFromRows(rows, page.limit, scopeFor(query, page.includeArchived), options.cursorSigningKey, (ad) => exactCursorTimestamp(ad, ad.firstSeenAt))
   })
 
-  app.post('/organizations/:organizationId/products/:productId/briefs/from-ad', async (request, reply) => {
+  app.post('/organizations/:organizationId/products/:productId/briefs/from-ad', { schema: schemaFor('createBriefFromAd') }, async (request, reply) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
     const productId = routeId(request, 'productId')
@@ -267,7 +319,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return reply.code(201).send(brief)
   })
 
-  app.post('/organizations/:organizationId/products/:productId/briefs', async (request, reply) => {
+  app.post('/organizations/:organizationId/products/:productId/briefs', { schema: schemaFor('createManualBrief') }, async (request, reply) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
     const productId = routeId(request, 'productId')
@@ -284,7 +336,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return reply.code(201).send(brief)
   })
 
-  app.get('/organizations/:organizationId/products/:productId/briefs', async (request) => {
+  app.get('/organizations/:organizationId/products/:productId/briefs', { schema: schemaFor('listBriefs') }, async (request) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
     const productId = routeId(request, 'productId')
@@ -294,7 +346,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return pageFromRows(rows, page.limit, scope(page.includeArchived), options.cursorSigningKey, (brief) => exactCursorTimestamp(brief, brief.createdAt))
   })
 
-  app.get('/organizations/:organizationId/briefs/:briefId', async (request) => {
+  app.get('/organizations/:organizationId/briefs/:briefId', { schema: schemaFor('getBrief') }, async (request) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
     const briefId = routeId(request, 'briefId')
@@ -305,7 +357,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return brief
   })
 
-  app.post('/organizations/:organizationId/products/:productId/iteration-map/analyze', async (request) => {
+  app.post('/organizations/:organizationId/products/:productId/iteration-map/analyze', { schema: schemaFor('analyzeIterationMap') }, async (request) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
     const productId = routeId(request, 'productId')
@@ -373,6 +425,25 @@ function fastifyClientStatus(error: unknown): 400 | 401 | 403 | 404 | 409 | 413 
 
 function isPostgresUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505'
+}
+
+function manualAdValidationMessage(error: unknown): 'Invalid request' | 'Invalid manual ad records' {
+  if (typeof error !== 'object' || error === null || !('validation' in error) || !Array.isArray(error.validation)) {
+    return 'Invalid manual ad records'
+  }
+  for (const issue of error.validation) {
+    if (typeof issue !== 'object' || issue === null) continue
+    const record = issue as Record<string, unknown>
+    if ((record.keyword === 'minItems' || record.keyword === 'maxItems') && record.instancePath === '/records') {
+      return 'Invalid request'
+    }
+    const parameters = record.params
+    if (record.keyword === 'required' && typeof parameters === 'object' && parameters !== null
+        && (parameters as Record<string, unknown>).missingProperty === 'records') {
+      return 'Invalid request'
+    }
+  }
+  return 'Invalid manual ad records'
 }
 
 function queryParameters(request: FastifyRequest, allowed: readonly string[]): URLSearchParams {

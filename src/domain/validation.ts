@@ -15,7 +15,8 @@ export function normalizeCanonicalText(value: unknown, field: string, rules: Tex
 
 export function validateCanonicalText(value: unknown, field: string, rules: TextRules): string {
   if (typeof value !== 'string' || value !== value.trim()) throw new ValidationError(`${field} is invalid`)
-  if ((!rules.allowEmpty && value.length === 0) || value.length > rules.maxLength || CONTROL_CHARACTERS.test(value)) {
+  const length = [...value].length
+  if ((!rules.allowEmpty && length === 0) || length > rules.maxLength || CONTROL_CHARACTERS.test(value)) {
     throw new ValidationError(`${field} is invalid`)
   }
   return value
@@ -65,4 +66,32 @@ export function validateCanonicalHttpsUrlArray(
   const result = value.map((item) => validateCanonicalHttpsUrl(item, field))
   if (new Set(result).size !== result.length) throw new ValidationError(`${field} is invalid`)
   return result
+}
+
+export function isCanonicalHttpsUrl(value: string): boolean {
+  try {
+    validateCanonicalHttpsUrl(value, 'URL')
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function isNormalizedParseableDate(value: string): boolean {
+  try {
+    const normalized = normalizeCanonicalText(value, 'Date', { maxLength: 100 })
+    return !Number.isNaN(new Date(normalized).valueOf())
+  } catch {
+    return false
+  }
+}
+
+export function isCanonicalJavascriptTimestamp(value: string): boolean {
+  try {
+    const canonical = validateCanonicalText(value, 'Timestamp', { maxLength: 100 })
+    const parsed = new Date(canonical)
+    return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === canonical
+  } catch {
+    return false
+  }
 }

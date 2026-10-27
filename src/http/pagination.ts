@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { DataIntegrityError, ValidationError } from '../domain/errors.ts'
 
 const CURSOR_VERSION = 1
-const MAX_CURSOR_LENGTH = 2_048
+export const MAX_CURSOR_LENGTH = 8_192
 const EXACT_CURSOR_TIMESTAMP = Symbol('exactCursorTimestamp')
 
 export type CursorSigningKey = string | Buffer
@@ -31,9 +31,14 @@ export function validateCursorSigningKey(key: CursorSigningKey): void {
 
 export function encodeCursor(position: CursorPosition, context: string, key: CursorSigningKey): string {
   validateCursorSigningKey(key)
+  if (!isCursorOrderValue(position.createdAt) || !isCursorId(position.id)) {
+    throw new DataIntegrityError('Cursor position is invalid')
+  }
   const payload = canonicalPayload(context, position.createdAt, position.id)
   const encodedPayload = Buffer.from(payload, 'utf8').toString('base64url')
-  return `${encodedPayload}.${signature(encodedPayload, key).toString('base64url')}`
+  const cursor = `${encodedPayload}.${signature(encodedPayload, key).toString('base64url')}`
+  if (cursor.length > MAX_CURSOR_LENGTH) throw new DataIntegrityError('Cursor exceeds the bounded encoded length')
+  return cursor
 }
 
 export function decodeCursor(value: string, expectedContext: string, key: CursorSigningKey): CursorPosition {
@@ -107,7 +112,8 @@ function isBase64Url(value: string): boolean {
 }
 
 function isCursorId(value: string): boolean {
-  return value.length > 0 && value.length <= 256 && value.trim() === value && !/[\u0000-\u001F\u007F]/.test(value)
+  const length = [...value].length
+  return length > 0 && length <= 256 && value.trim() === value && !/[\u0000-\u001F\u007F]/.test(value)
 }
 
 function isCursorOrderValue(value: string): boolean {

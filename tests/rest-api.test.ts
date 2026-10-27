@@ -56,7 +56,7 @@ test('REST API persists organization, product, competitor, and manual Meta ad', 
     method: 'POST', url: '/organizations/org-1/products/product-1/competitors/competitor-1/ads/manual-meta', headers: auth,
     payload: { records: [{
       externalId: 'meta-1', advertiserName: 'Study Buddy', body: 'Focus now',
-      startedAt: '2026-10-01T00:00:00.000Z', isActive: true, mediaUrls: [],
+      startedAt: '2026-10-01', isActive: true, mediaUrls: [],
       sourceUrl: 'https://www.facebook.com/ads/library/?id=meta-1',
     }] },
   })
@@ -69,8 +69,29 @@ test('REST API persists organization, product, competitor, and manual Meta ad', 
   assert.equal(ads.statusCode, 200)
   assert.equal(ads.json().items.length, 1)
   assert.equal(ads.json().items[0].providerName, 'manual-meta')
+  assert.equal(ads.json().items[0].startedAt, '2026-10-01T00:00:00.000Z')
   assert.equal(ads.json().nextCursor, null)
 
+  await app.close()
+  await pool.end()
+})
+
+test('REST schemas preserve domain canonical URL semantics', async () => {
+  const { app, pool } = await testApi()
+  const auth = { 'x-user-id': 'admin-1' }
+  const organization = await app.inject({
+    method: 'POST', url: '/organizations', headers: auth, payload: { name: 'Team' },
+  })
+  assert.equal(organization.statusCode, 201)
+  await app.inject({
+    method: 'POST', url: '/organizations/org-1/products', headers: auth,
+    payload: { name: 'Product', markets: [], platforms: ['web'], targetAudiences: [], uniqueSellingPoints: [] },
+  })
+  const competitor = await app.inject({
+    method: 'POST', url: '/organizations/org-1/products/product-1/competitors', headers: auth,
+    payload: { name: 'Competitor', metaPageUrl: 'https://münich.example/%zz' },
+  })
+  assert.equal(competitor.statusCode, 201)
   await app.close()
   await pool.end()
 })
@@ -86,6 +107,30 @@ test('REST API returns sanitized conflict errors', async () => {
   assert.equal(conflict.statusCode, 409)
   assert.deepEqual(conflict.json(), { error: 'Resource conflict' })
 
+  await app.close()
+  await pool.end()
+})
+
+test('REST API enforces authentication before request-schema validation', async () => {
+  const { app, pool } = await testApi()
+  const response = await app.inject({ method: 'POST', url: '/organizations', payload: { unexpected: true } })
+  assert.equal(response.statusCode, 401)
+  assert.deepEqual(response.json(), { error: 'Authentication is required' })
+  await app.close()
+  await pool.end()
+})
+
+test('REST API preserves normalized member identifiers accepted by the domain', async () => {
+  const { app, pool } = await testApi()
+  const auth = { 'x-user-id': 'admin-1' }
+  await app.inject({ method: 'POST', url: '/organizations', headers: auth, payload: { name: 'Creative Team' } })
+  const response = await app.inject({
+    method: 'POST',
+    url: '/organizations/org-1/members',
+    headers: auth,
+    payload: { userId: '  member-1  ', role: 'member' },
+  })
+  assert.equal(response.statusCode, 204)
   await app.close()
   await pool.end()
 })
@@ -194,6 +239,34 @@ test('REST API returns a fixed validation error for unsafe provider URLs', async
   assert.equal(response.statusCode, 400)
   assert.deepEqual(response.json(), { error: 'Invalid manual ad records' })
   assert.doesNotMatch(response.body, /HTTPS|internal\.example/i)
+
+  await app.close()
+  await pool.end()
+})
+
+test('schema validation never coerces request-body domain values', async () => {
+  const { app, pool } = await testApi()
+  const auth = { 'x-user-id': 'admin-1' }
+  await app.inject({ method: 'POST', url: '/organizations', headers: auth, payload: { name: 'Team' } })
+  await app.inject({
+    method: 'POST', url: '/organizations/org-1/products', headers: auth,
+    payload: { name: 'Product', markets: [], platforms: ['web'], targetAudiences: [], uniqueSellingPoints: [] },
+  })
+  await app.inject({
+    method: 'POST', url: '/organizations/org-1/products/product-1/competitors', headers: auth,
+    payload: { name: 'Competitor' },
+  })
+
+  const response = await app.inject({
+    method: 'POST', url: '/organizations/org-1/products/product-1/competitors/competitor-1/ads/manual-meta', headers: auth,
+    payload: { records: [{
+      externalId: 'meta-1', advertiserName: 'Competitor', body: 'Copy',
+      startedAt: '2026-10-01T00:00:00.000Z', isActive: 'true', mediaUrls: [],
+      sourceUrl: 'https://example.test/ad',
+    }] },
+  })
+  assert.equal(response.statusCode, 400)
+  assert.deepEqual(response.json(), { error: 'Invalid manual ad records' })
 
   await app.close()
   await pool.end()
