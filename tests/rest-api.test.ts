@@ -4,12 +4,15 @@ import { readFile } from 'node:fs/promises'
 
 import { DataType, newDb } from 'pg-mem'
 import type { FastifyRequest } from 'fastify'
+import { AuthenticationError, RateLimitError } from '../src/domain/errors.ts'
 import { buildApi } from '../src/http/build-api.ts'
 
 async function testApi(
   ids = ['org-1', 'product-1', 'competitor-1', 'ad-1'],
   authenticate?: (request: FastifyRequest) => Promise<string>,
   apifyFetch?: typeof fetch,
+  stagingLogin?: { login(password: string, remoteAddress: string): Promise<string> },
+  trustedProxies?: string[],
 ) {
   const db = newDb()
   db.public.registerFunction({ name: 'length', args: [DataType.text], returns: DataType.integer, implementation: (value: string) => value.length })
@@ -30,6 +33,8 @@ async function testApi(
       if (typeof userId !== 'string') throw new Error('Authentication is required')
       return userId
     }),
+    ...(stagingLogin ? { stagingLogin, stagingOrganizationId: 'staging-org' } : {}),
+    ...(trustedProxies ? { trustedProxies } : {}),
     ...(apifyFetch ? { apify: {
       apiToken: 'fixture-apify-credential', timeoutMs: 1_000, maxResponseBytes: 100_000,
       limit: 10, countryCode: 'ALL', activeStatus: 'active' as const, maxConcurrency: 1, fetch: apifyFetch,
@@ -387,4 +392,81 @@ test('schema validation never coerces request-body domain values', async () => {
 
   await app.close()
   await pool.end()
+})
+
+test('staging password login returns a bearer token without invoking OIDC authentication', async () => {
+  let oidcCalls = 0
+  const loginCalls: Array<{ password: string; remoteAddress: string }> = []
+  const { app, pool } = await testApi(
+    undefined,
+    async () => { oidcCalls += 1; throw new Error('must not authenticate the login route') },
+    undefined,
+    {
+      login: async (password, remoteAddress) => {
+        loginCalls.push({ password, remoteAddress })
+        return 'signed.jwt.value'
+      },
+    },
+    ['127.0.0.1'],
+  )
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/auth/staging-login',
+    payload: { password: 'correct horse battery staple' },
+    headers: { 'x-forwarded-for': '203.0.113.10' },
+  })
+
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), { accessToken: 'signed.jwt.value', organizationId: 'staging-org' })
+  assert.deepEqual(loginCalls, [{ password: 'correct horse battery staple', remoteAddress: '203.0.113.10' }])
+  assert.equal(oidcCalls, 0)
+  await app.close()
+  await pool.end()
+})
+
+test('staging password login ignores forwarded addresses from untrusted peers', async () => {
+  const remoteAddresses: string[] = []
+  const { app, pool } = await testApi(
+    undefined,
+    async () => { throw new Error('OIDC should not be used') },
+    undefined,
+    { login: async (_password, remoteAddress) => {
+      remoteAddresses.push(remoteAddress)
+      return 'signed.jwt.value'
+    } },
+  )
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/auth/staging-login',
+    payload: { password: 'fixture password' },
+    headers: { 'x-forwarded-for': '203.0.113.99' },
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(remoteAddresses, ['127.0.0.1'])
+  await app.close()
+  await pool.end()
+})
+
+test('staging password login fails closed when disabled or rejected without exposing password details', async () => {
+  const disabled = await testApi()
+  const unavailable = await disabled.app.inject({ method: 'POST', url: '/auth/staging-login', payload: { password: 'secret value' } })
+  assert.equal(unavailable.statusCode, 404)
+  assert.deepEqual(unavailable.json(), { error: 'Not found' })
+  await disabled.app.close()
+  await disabled.pool.end()
+
+  for (const [failure, statusCode, publicMessage] of [
+    [new AuthenticationError(), 401, 'Authentication is required'],
+    [new RateLimitError(), 429, 'Too many login attempts'],
+  ] as const) {
+    const rejected = await testApi(undefined, undefined, undefined, { login: async () => { throw failure } })
+    const response = await rejected.app.inject({ method: 'POST', url: '/auth/staging-login', payload: { password: 'secret value' } })
+    assert.equal(response.statusCode, statusCode)
+    assert.deepEqual(response.json(), { error: publicMessage })
+    assert.doesNotMatch(response.body, /secret value/u)
+    await rejected.app.close()
+    await rejected.pool.end()
+  }
 })

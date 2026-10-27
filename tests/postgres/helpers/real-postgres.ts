@@ -7,6 +7,7 @@ import { Pool, type PoolClient } from 'pg'
 const provisionerEnvironmentVariable = 'CREATIVE_INTELLIGENCE_TEST_PROVISIONER_URL'
 const runtimeRole = 'creative_intelligence_runtime'
 const rlsOwnerRole = 'creative_intelligence_rls_owner'
+const loginLimiterOwnerRole = 'creative_intelligence_login_limiter_owner'
 const artifactPrefix = 'creative_intelligence_test_'
 const advisoryLockKey = 734_812_901
 
@@ -28,6 +29,7 @@ export interface CleanupNames {
   loginRole: string | undefined
   runtimeRole: string
   rlsOwnerRole: string
+  loginLimiterOwnerRole: string
 }
 
 export interface CleanupOwnership {
@@ -40,7 +42,7 @@ export function cleanupTargets(names: CleanupNames, ownership: CleanupOwnership)
   const targets: string[] = []
   if (ownership.databaseCreated && names.database) targets.push(`database:${names.database}`)
   if (ownership.loginRoleCreated && names.loginRole) targets.push(`role:${names.loginRole}`)
-  if (ownership.fixedRolesOwned) targets.push(`role:${names.runtimeRole}`, `role:${names.rlsOwnerRole}`)
+  if (ownership.fixedRolesOwned) targets.push(`role:${names.runtimeRole}`, `role:${names.rlsOwnerRole}`, `role:${names.loginLimiterOwnerRole}`)
   return targets
 }
 
@@ -72,7 +74,7 @@ export async function withRealPostgres<T>(operation: (context: RealPostgresConte
     ownership.databaseCreated = true
 
     databasePool = new Pool({ connectionString: databaseUrl(provisioner.connectionString, databaseName), max: 1 })
-    for (const migration of ['001_initial.sql', '002_tenant_rls.sql', '003_provider_sync_limits.sql', '004_provider_sync_limits_rls.sql']) {
+    for (const migration of ['001_initial.sql', '002_tenant_rls.sql', '003_provider_sync_limits.sql', '004_provider_sync_limits_rls.sql', '005_staging_login_attempts.sql']) {
       const sql = await readFile(new URL(`../../../migrations/${migration}`, import.meta.url), 'utf8')
       await databasePool.query(sql)
       if (migration === '002_tenant_rls.sql') ownership.fixedRolesOwned = true
@@ -139,6 +141,7 @@ export async function withRealPostgres<T>(operation: (context: RealPostgresConte
         loginRole: runtimeLoginRole,
         runtimeRole,
         rlsOwnerRole,
+        loginLimiterOwnerRole,
       }, ownership)
       if (databaseName && targets.includes(`database:${databaseName}`)) {
         await cleanup(() => lockClient!.query(`DROP DATABASE IF EXISTS ${databaseName}`))
@@ -148,6 +151,7 @@ export async function withRealPostgres<T>(operation: (context: RealPostgresConte
       }
       if (targets.includes(`role:${runtimeRole}`)) await cleanup(() => lockClient!.query(`DROP ROLE IF EXISTS ${runtimeRole}`))
       if (targets.includes(`role:${rlsOwnerRole}`)) await cleanup(() => lockClient!.query(`DROP ROLE IF EXISTS ${rlsOwnerRole}`))
+      if (targets.includes(`role:${loginLimiterOwnerRole}`)) await cleanup(() => lockClient!.query(`DROP ROLE IF EXISTS ${loginLimiterOwnerRole}`))
       if (advisoryLockHeld) await cleanup(() => lockClient!.query('SELECT pg_advisory_unlock($1)', [advisoryLockKey]))
       lockClient.release()
     }
@@ -226,7 +230,7 @@ async function assertSafeProvisioner(client: PoolClient): Promise<void> {
 async function assertSharedRolesAbsent(client: PoolClient): Promise<void> {
   const result = await client.query<{ rolname: string }>(
     'SELECT rolname FROM pg_roles WHERE rolname = ANY($1::text[]) ORDER BY rolname',
-    [[runtimeRole, rlsOwnerRole]],
+    [[runtimeRole, rlsOwnerRole, loginLimiterOwnerRole]],
   )
   if (result.rowCount) {
     throw new Error(`Refusing cluster with existing application roles: ${result.rows.map(({ rolname }) => rolname).join(', ')}`)

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { generateKeyPairSync, scryptSync } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
@@ -11,6 +12,7 @@ import { startProductionServer } from '../src/server.ts'
 const VALID_ENV = {
   HOST: '127.0.0.1',
   PORT: '3000',
+  TRUSTED_PROXY_ADDRESSES: '127.0.0.1',
   DATABASE_URL: 'postgresql://runtime:secret@127.0.0.1:5432/creative_intelligence',
   DATABASE_RUNTIME_ROLE: 'creative_intelligence_runtime',
   DATABASE_CONNECT_TIMEOUT_MS: '2000',
@@ -57,6 +59,7 @@ test('runtime configuration rejects unsafe database, network, pool, and signing 
   const invalid = [
     { PORT: '0' },
     { HOST: 'bad host' },
+    { TRUSTED_PROXY_ADDRESSES: '127.0.0.1,proxy.internal' },
     { DATABASE_URL: 'https://database.example.com/app' },
     { DATABASE_URL: 'postgresql://runtime:secret@db.example.com/app#fragment' },
     { DATABASE_URL: 'postgresql://runtime:secret@db.example.com/app\u00a0' },
@@ -80,6 +83,102 @@ test('runtime configuration rejects unsafe database, network, pool, and signing 
       message: 'Runtime configuration is invalid',
     })
   }
+})
+
+test('runtime configuration accepts complete opt-in staging password login settings and rejects partial settings', () => {
+  const enabled = {
+    ...VALID_ENV,
+    STAGING_PASSWORD_LOGIN_ENABLED: 'true',
+    STAGING_LOGIN_PASSWORD_HASH_FILE: '/run/credentials/password-hash',
+    STAGING_LOGIN_PRIVATE_KEY_FILE: '/run/credentials/private-key',
+    STAGING_LOGIN_KEY_ID: 'staging-key-1',
+    STAGING_LOGIN_SUBJECT: 'denis',
+    STAGING_LOGIN_ORGANIZATION_ID: 'staging-org',
+    STAGING_LOGIN_TOKEN_TTL_SECONDS: '43200',
+    STAGING_LOGIN_MAX_ATTEMPTS: '5',
+    STAGING_LOGIN_ATTEMPT_WINDOW_MS: '300000',
+    STAGING_LOGIN_MAX_CONCURRENCY: '2',
+  }
+  assert.deepEqual(parseRuntimeConfig(enabled).stagingLogin, {
+    passwordHashFile: '/run/credentials/password-hash',
+    privateKeyFile: '/run/credentials/private-key',
+    keyId: 'staging-key-1',
+    subject: 'denis',
+    organizationId: 'staging-org',
+    tokenTtlSeconds: 43_200,
+    maxAttempts: 5,
+    attemptWindowMs: 300_000,
+    maxConcurrency: 2,
+  })
+  assert.deepEqual(parseRuntimeConfig(enabled).trustedProxies, ['127.0.0.1'])
+  assert.throws(() => parseRuntimeConfig({ ...VALID_ENV, STAGING_PASSWORD_LOGIN_ENABLED: 'true' }), {
+    message: 'Runtime configuration is invalid',
+  })
+  assert.throws(() => parseRuntimeConfig({ ...enabled, STAGING_LOGIN_PRIVATE_KEY_FILE: 'relative.pem' }), {
+    message: 'Runtime configuration is invalid',
+  })
+  for (const override of [
+    { OIDC_ALGORITHMS: 'ES256' },
+    { STAGING_LOGIN_KEY_ID: 'k'.repeat(129) },
+    { OIDC_SUBJECT_MAX_LENGTH: '8', STAGING_LOGIN_SUBJECT: 'subject-too-long' },
+    { STAGING_LOGIN_MAX_CONCURRENCY: '17' },
+  ]) {
+    assert.throws(() => parseRuntimeConfig({ ...enabled, ...override }), { message: 'Runtime configuration is invalid' })
+  }
+})
+
+test('production composition loads staging login secrets from files and enables password exchange', async () => {
+  const salt = Buffer.from('0123456789abcdef', 'utf8')
+  const password = 'correct horse battery staple'
+  const digest = scryptSync(password, salt, 32)
+  const hash = `scrypt-v1$${salt.toString('base64url')}$${digest.toString('base64url')}`
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+  const publicJwk = { ...publicKey.export({ format: 'jwk' }), kid: 'staging-key-1', alg: 'RS256', use: 'sig' }
+  let jwksFetches = 0
+  const environment = {
+    ...VALID_ENV,
+    STAGING_PASSWORD_LOGIN_ENABLED: 'true',
+    STAGING_LOGIN_PASSWORD_HASH_FILE: '/run/credentials/password-hash',
+    STAGING_LOGIN_PRIVATE_KEY_FILE: '/run/credentials/private-key',
+    STAGING_LOGIN_KEY_ID: 'staging-key-1',
+    STAGING_LOGIN_SUBJECT: 'denis',
+    STAGING_LOGIN_ORGANIZATION_ID: 'staging-org',
+    STAGING_LOGIN_TOKEN_TTL_SECONDS: '43200',
+    STAGING_LOGIN_MAX_ATTEMPTS: '5',
+    STAGING_LOGIN_ATTEMPT_WINDOW_MS: '300000',
+    STAGING_LOGIN_MAX_CONCURRENCY: '2',
+  }
+  const pool = {
+    query: async () => ({ rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: false }], rowCount: 1 }),
+    connect: async () => { throw new Error('not used') },
+    end: async () => undefined,
+  } as unknown as RuntimeSqlPool
+  const app = await createProductionApp(parseRuntimeConfig(environment), {
+    createPool: () => pool,
+    readSecretFile: async (path) => path.endsWith('password-hash') ? hash : privateKeyPem,
+    createStagingLoginRateLimiter: () => ({ claim: async () => true, reset: async () => undefined }),
+    verifyStagingMembership: async (_pool, _userId, organizationId) => organizationId === 'staging-org',
+    fetch: async () => {
+      jwksFetches += 1
+      return new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200, headers: { 'content-type': 'application/json' } })
+    },
+  })
+
+  assert.equal(jwksFetches, 1)
+  const response = await app.inject({ method: 'POST', url: '/auth/staging-login', payload: { password } })
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.json().organizationId, 'staging-org')
+  assert.match(response.json().accessToken, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u)
+  await app.close()
+
+  await assert.rejects(() => createProductionApp(parseRuntimeConfig(environment), {
+    createPool: () => pool,
+    readSecretFile: async (path) => path.endsWith('password-hash') ? hash : privateKeyPem,
+    createStagingLoginRateLimiter: () => ({ claim: async () => true, reset: async () => undefined }),
+    verifyStagingMembership: async () => false,
+    fetch: async () => new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200, headers: { 'content-type': 'application/json' } }),
+  }), { message: 'Staging login membership is invalid' })
 })
 
 test('startup rejects a database role mismatch and closes the pool', async () => {

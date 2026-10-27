@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, createApiClient } from './api.ts'
+import { ApiError, createApiClient, exchangeStagingPassword } from './api.ts'
 
 const connection = {
   apiBaseUrl: 'https://api.example.test/',
@@ -10,6 +10,24 @@ const connection = {
 
 describe('Creative Intelligence API client', () => {
   afterEach(() => vi.unstubAllGlobals())
+
+  it('exchanges the staging password without sending an authorization header', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ accessToken: 'signed.jwt.value', organizationId: 'staging-org' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(exchangeStagingPassword('https://api.example.test/', ' password with spaces ')).resolves.toEqual({ accessToken: 'signed.jwt.value', organizationId: 'staging-org' })
+    expect(fetchMock).toHaveBeenCalledWith('https://api.example.test/auth/staging-login', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: ' password with spaces ' }),
+    })
+  })
+
+  it('rejects malformed staging login success responses', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ token: 'wrong-field' })))
+    await expect(exchangeStagingPassword('https://api.example.test', 'password'))
+      .rejects.toEqual(new ApiError(502, 'The API returned an invalid response'))
+  })
 
   it('authenticates requests, encodes path values, and serializes filters', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ items: [], nextCursor: null }), {

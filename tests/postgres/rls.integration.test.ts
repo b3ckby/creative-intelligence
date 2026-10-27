@@ -13,7 +13,7 @@ test('real PostgreSQL migrations enforce runtime RLS', async (t) => {
     await t.test('applies all migrations to an isolated database', async () => {
       assert.match(databaseName, /^creative_intelligence_test_[a-f0-9]+$/)
       assert.match(serverVersion, /^18\.(?:\d+)(?:\s|$)/)
-      const tables = await runtimePool.query<{ table_name: string }>(`
+      const tables = await inspectionPool.query<{ table_name: string }>(`
         SELECT table_name
         FROM information_schema.tables
         WHERE table_schema = 'public'
@@ -27,6 +27,7 @@ test('real PostgreSQL migrations enforce runtime RLS', async (t) => {
         'organizations',
         'products',
         'provider_sync_limits',
+        'staging_login_attempts',
       ])
       const security = await inspectionPool.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>(`
         SELECT relname, relrowsecurity, relforcerowsecurity

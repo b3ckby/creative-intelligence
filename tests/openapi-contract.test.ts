@@ -5,7 +5,7 @@ import test from 'node:test'
 import { buildApi } from '../src/http/build-api.ts'
 import { normalizeManualBriefInput } from '../src/briefs/brief-service.ts'
 import { normalizeCanonicalText } from '../src/domain/validation.ts'
-import { API_CONTRACTS, OPERATIONAL_CONTRACTS, generateOpenApiDocument, schemaFor } from '../src/http/schemas.ts'
+import { API_CONTRACTS, AUTH_CONTRACTS, OPERATIONAL_CONTRACTS, generateOpenApiDocument, schemaFor } from '../src/http/schemas.ts'
 
 const EXPECTED_OPERATIONS = [
   'POST /organizations',
@@ -50,10 +50,13 @@ test('generated OpenAPI is deterministic, provider-neutral, and contains no depl
   })
   assert.deepEqual(Object.keys(document.paths).sort(), [
     ...new Set(EXPECTED_OPERATIONS.map((entry) => entry.slice(entry.indexOf(' ') + 1))),
+    '/auth/staging-login',
     '/health/live',
     '/health/ready',
   ].sort())
   assert.equal(OPERATIONAL_CONTRACTS.length, 2)
+  assert.equal(AUTH_CONTRACTS.length, 1)
+  assert.deepEqual(document.paths['/auth/staging-login']?.post?.security, [])
   assert.deepEqual(document.paths['/health/live']?.get?.security, [])
   const readinessOperation = document.paths['/health/ready']?.get as { responses?: Record<string, unknown> } | undefined
   assert.deepEqual(readinessOperation?.responses?.['503'], {

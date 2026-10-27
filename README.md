@@ -79,17 +79,18 @@ The browser MVP lives in `web/` and builds to `dist/web/`. It connects directly 
 
 ## PostgreSQL and HTTP
 
-Apply `migrations/001_initial.sql`, `migrations/002_tenant_rls.sql`, `migrations/003_provider_sync_limits.sql`, and `migrations/004_provider_sync_limits_rls.sql` in order to an empty PostgreSQL database. Migration `002` must run under a provisioning account allowed to create `BYPASSRLS` roles. The migrations create:
+Apply `migrations/001_initial.sql`, `migrations/002_tenant_rls.sql`, `migrations/003_provider_sync_limits.sql`, `migrations/004_provider_sync_limits_rls.sql`, and `migrations/005_staging_login_attempts.sql` in order to an empty PostgreSQL database. Migrations `002` and `005` must run under a provisioning account allowed to create roles. The migrations create:
 
 - restricted `creative_intelligence_runtime` for application access;
 - non-login `creative_intelligence_rls_owner`, which has only schema usage, membership-table read access, and organization-row lock privileges plus `BYPASSRLS`, solely to own the security-definer policy helpers;
+- non-login `creative_intelligence_login_limiter_owner`, which alone owns the bounded staging-login table and security-definer claim/reset functions;
 - forced row-level security policies and a database trigger that preserves at least one administrator.
 
-Never grant `creative_intelligence_rls_owner` to the runtime role or application login. Production connections must assume `creative_intelligence_runtime` and must not use the migration owner or a superuser.
+Never grant either owner role to the runtime role or application login. Production connections must assume `creative_intelligence_runtime` and must not use the migration owner or a superuser.
 
 ### Real PostgreSQL integration suite
 
-`npm run test:postgres` provisions an isolated database and unique login roles, applies all migrations, runs all application queries after assuming the restricted `creative_intelligence_runtime` role, and removes every temporary database and role in `finally`. The suite serializes provisioners with a PostgreSQL advisory lock because migration `002_tenant_rls.sql` intentionally creates two fixed cluster roles.
+`npm run test:postgres` provisions an isolated database and unique login roles, applies all migrations, runs all application queries after assuming the restricted `creative_intelligence_runtime` role, and removes every temporary database and role in `finally`. The suite serializes provisioners with a PostgreSQL advisory lock because the migrations intentionally create three fixed cluster roles.
 
 The harness has fail-closed safety gates:
 
@@ -97,7 +98,7 @@ The harness has fail-closed safety gates:
 - the provisioner URL must target the `postgres` maintenance database;
 - the connected server address is checked again after connection;
 - the provisioner must be a local superuser because PostgreSQL only permits a superuser to create the migration's `BYPASSRLS` helper role;
-- it refuses to run if `creative_intelligence_runtime` or `creative_intelligence_rls_owner` already exists, so it cannot modify an installed application cluster;
+- it refuses to run if any fixed application role (`creative_intelligence_runtime`, `creative_intelligence_rls_owner`, or `creative_intelligence_login_limiter_owner`) already exists, so it cannot modify an installed application cluster;
 - generated databases and login roles always use the `creative_intelligence_test_<random>` prefix.
 
 On a Linux development machine running as root, the harness safely detects the local service through `runuser -u postgres` and creates a short-lived provisioner login. Otherwise, set an explicit local-only provisioner URL:
@@ -131,7 +132,19 @@ set +a
 npm start
 ```
 
-Startup is fail-closed. It validates every bounded runtime setting, constructs only the OIDC authenticator, connects to PostgreSQL, and refuses to serve when `current_user` differs from `DATABASE_RUNTIME_ROLE` or has `SUPERUSER`/`BYPASSRLS`. `DATABASE_URL` must use the restricted application login and assume `creative_intelligence_runtime`; never use a provisioning or migration credential.
+Startup is fail-closed. It validates every bounded runtime setting, constructs the OIDC authenticator, connects to PostgreSQL, and refuses to serve when `current_user` differs from `DATABASE_RUNTIME_ROLE` or has `SUPERUSER`/`BYPASSRLS`. `DATABASE_URL` must use the restricted application login and assume `creative_intelligence_runtime`; never use a provisioning or migration credential.
+
+For a private single-user staging deployment, the optional `STAGING_*` settings expose `POST /auth/staging-login`. The endpoint verifies a scrypt password hash from a protected file, reserves attempts atomically in PostgreSQL across service instances, bounds active address buckets and concurrent derivations, and returns a short-lived RS256 token plus the server-configured organization ID. Startup exercises the database limiter, signs and verifies a probe token through the configured JWKS, derives the normal issuer-namespaced user ID, and verifies that user is already a member of `STAGING_LOGIN_ORGANIZATION_ID`; missing migration 005, weak/mismatched keys, or missing membership fail before the server listens. It is disabled unless explicitly enabled, never stores or echoes the submitted password, and does not replace production OIDC. `TRUSTED_PROXY_ADDRESSES` must list only the exact reverse-proxy IP addresses that are allowed to supply forwarding headers.
+
+Staging provisioning order:
+
+1. Apply migration `005_staging_login_attempts.sql` with the same local provisioning account used for the earlier migrations.
+2. Generate an RSA key with `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /etc/creative-intelligence/oidc-private.pem`, export its matching public key as a JWK under `STAGING_LOGIN_KEY_ID`, and publish that JWK at `OIDC_JWKS_URL`. Keep the source root-owned at mode `0600` and deliver it to the non-root service through systemd `LoadCredential=` (the application path should be the service-readable file under `$CREDENTIALS_DIRECTORY`); alternatively, make a dedicated copy owned by the service account at mode `0400`.
+3. Create the password hash without putting the password in an argument, URL, environment file, or shell history: read it silently, pipe it to a local Node script that generates a random 16-byte salt and a 32-byte `scryptSync` digest, and write `scrypt-v1$<base64url-salt>$<base64url-digest>` to a protected credential delivered with the same non-root-readable pattern.
+4. Derive the member ID exactly as `<OIDC_IDENTITY_NAMESPACE>:base64url(sha256(Buffer.concat([Buffer.from(OIDC_ISSUER), Buffer.from([0]), Buffer.from(STAGING_LOGIN_SUBJECT)])))`; `Buffer.from([0])` is one NUL byte, not the two printable characters backslash and zero. Provision that value in `organization_members` for `STAGING_LOGIN_ORGANIZATION_ID` using a migration/admin connection.
+5. Set all `STAGING_LOGIN_*` values from `.env.example`, start the service, and require startup plus a password exchange and protected organization read to succeed.
+
+The simple frontend build requires both `VITE_SIMPLE_LOGIN=true` and an absolute HTTPS `VITE_API_BASE_URL`; its configuration validation fails the build when either is missing or malformed. The organization ID comes from the authenticated server response, preventing a frontend/backend organization mismatch.
 
 Apify ingestion is also fail-closed: all `APIFY_*` settings in `.env.example` are required. `APIFY_API_TOKEN` stays server-side and is sent to the fixed Muppets Actor endpoint only as a Bearer header. `APIFY_AD_COUNT`, response bytes, timeout, country/status filters, and process-wide concurrency are bounded at startup.
 

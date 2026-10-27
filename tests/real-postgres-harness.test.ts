@@ -44,12 +44,12 @@ test('provisioner URL rejects routing overrides and non-numeric localhost aliase
 })
 
 test('cleanup selects only artifacts whose creation completed or began from a proven-absent state', () => {
-  const names = { database: 'db', loginRole: 'login', runtimeRole: 'runtime', rlsOwnerRole: 'owner' }
+  const names = { database: 'db', loginRole: 'login', runtimeRole: 'runtime', rlsOwnerRole: 'owner', loginLimiterOwnerRole: 'limiter' }
 
   assert.deepEqual(cleanupTargets(names, {}), [])
   assert.deepEqual(cleanupTargets(names, { databaseCreated: true }), ['database:db'])
   assert.deepEqual(
     cleanupTargets(names, { loginRoleCreated: true, fixedRolesOwned: true }),
-    ['role:login', 'role:runtime', 'role:owner'],
+    ['role:login', 'role:runtime', 'role:owner', 'role:limiter'],
   )
 })

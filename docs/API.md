@@ -6,6 +6,8 @@ The canonical machine-readable contract is [`openapi.json`](./openapi.json). It 
 
 Every business endpoint requires exactly one HTTP `Authorization` header using the `Bearer <JWT>` scheme. Tokens are validated against the configured OIDC issuer and JWKS, including signature, audience, subject, and temporal claims. Authentication is never accepted from cookies or query parameters.
 
+When explicitly enabled for a private single-user staging deployment, `POST /auth/staging-login` accepts only `{ "password": "..." }` and returns `{ "accessToken": "...", "organizationId": "..." }`. It is unauthenticated by design, uses an atomic PostgreSQL-backed per-address attempt window, caps active address buckets, and separately bounds process derivations. The application never echoes the password or writes it to URLs, cookies, web storage, or logs. The simple-login field uses `autocomplete="new-password"` to discourage browser credential capture and is cleared after every attempt, though browser/password-manager policy remains outside the application's absolute control. The returned bearer token remains only in React memory.
+
 The two operational health endpoints are intentionally unauthenticated and disclose only fixed status values.
 
 ## Pagination

@@ -264,6 +264,24 @@ const axes: JsonSchema = {
   description: 'The product of the four normalized, de-duplicated axis lengths must not exceed 10,000.',
 }
 
+export const AUTH_CONTRACTS: readonly ApiContract[] = [
+  {
+    method: 'POST', fastifyPath: '/auth/staging-login', openapiPath: '/auth/staging-login', operationId: 'stagingPasswordLogin',
+    schema: {
+      operationId: 'stagingPasswordLogin', summary: 'Exchange the staging password for a short-lived bearer token', tags: ['Authentication'], security: [],
+      querystring: noQuery,
+      body: strictObject({ password: { type: 'string', minLength: 1, maxLength: 1_024 } }),
+      response: {
+        200: strictObject({
+          accessToken: { type: 'string', minLength: 1, maxLength: 8_192 },
+          organizationId: identifier,
+        }),
+        400: errorResponse, 401: errorResponse, 404: errorResponse, 413: errorResponse, 415: errorResponse, 429: errorResponse, 500: errorResponse,
+      },
+    },
+  },
+]
+
 export const API_CONTRACTS: readonly ApiContract[] = [
   route('POST', '/organizations', '/organizations', 'createOrganization', 'Create an organization', 'Organizations', { querystring: noQuery, body: strictObject({ name: normalizedText(200) }) }, 201, organization),
   route('POST', '/organizations/:organizationId/members', '/organizations/{organizationId}/members', 'addOrganizationMember', 'Add or update an organization member', 'Organizations', { params: params('organizationId'), querystring: noQuery, body: strictObject({ userId: normalizedText(256), role: { type: 'string', enum: ['admin', 'member'] } }) }, 204, emptyResponse),
@@ -307,7 +325,7 @@ export const OPERATIONAL_CONTRACTS: readonly ApiContract[] = [
   },
 ]
 
-const ALL_CONTRACTS = [...API_CONTRACTS, ...OPERATIONAL_CONTRACTS]
+const ALL_CONTRACTS = [...AUTH_CONTRACTS, ...API_CONTRACTS, ...OPERATIONAL_CONTRACTS]
 const contractByOperationId = new Map(ALL_CONTRACTS.map((contract) => [contract.operationId, contract]))
 if (contractByOperationId.size !== ALL_CONTRACTS.length) throw new Error('API operation IDs must be unique')
 
@@ -392,6 +410,7 @@ function responseDescription(status: number): string {
   if (status === 409) return 'Resource conflict'
   if (status === 413) return 'Payload too large'
   if (status === 415) return 'Unsupported media type'
+  if (status === 429) return 'Too many requests'
   if (status === 502) return 'External provider unavailable'
   if (status === 503) return 'Service unavailable'
   return 'Internal server error'

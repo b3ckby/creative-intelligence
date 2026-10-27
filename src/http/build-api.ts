@@ -34,6 +34,9 @@ export interface BuildApiOptions {
   authenticate: (request: FastifyRequest) => Promise<string>
   cursorSigningKey: CursorSigningKey
   apify?: Omit<ApifyMetaAdsProviderConfig, 'facebookPageUrl'> & { fetch?: typeof fetch, maxConcurrency: number }
+  stagingLogin?: { login(password: string, remoteAddress: string): Promise<string> }
+  stagingOrganizationId?: string
+  trustedProxies?: string[]
 }
 
 export function buildApi(options: BuildApiOptions): FastifyInstance {
@@ -45,6 +48,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
   }
   const app = Fastify({
     logger: false,
+    trustProxy: options.trustedProxies ?? false,
     serializerOpts: { ajv: { formats: customFormats } },
     ajv: {
       onCreate: (ajv) => {
@@ -131,6 +135,16 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
   })
 
   app.setNotFoundHandler((_request, reply) => reply.code(404).send({ error: 'Not found' }))
+
+  app.post('/auth/staging-login', { schema: schemaFor('stagingPasswordLogin') }, async (request) => {
+    if (!options.stagingLogin || !options.stagingOrganizationId) throw new NotFoundError()
+    queryParameters(request, [])
+    const body = exactRecord(request.body, ['password'])
+    return {
+      accessToken: await options.stagingLogin.login(text(body.password, 'Password'), request.ip),
+      organizationId: options.stagingOrganizationId,
+    }
+  })
 
   app.post('/organizations', { schema: schemaFor('createOrganization') }, async (request, reply) => {
     const actorUserId = await actor(request)

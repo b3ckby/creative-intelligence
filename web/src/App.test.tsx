@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
-import type { CreativeIntelligenceApi } from './api.ts'
+import { ApiError, type CreativeIntelligenceApi } from './api.ts'
 import { App } from './App.tsx'
 
 const api: CreativeIntelligenceApi = {
@@ -13,6 +13,47 @@ const api: CreativeIntelligenceApi = {
 }
 
 afterEach(() => { cleanup(); localStorage.clear() })
+
+it('uses a single password field for configured staging login without persisting credentials', async () => {
+  const factory = vi.fn().mockReturnValue(api)
+  const passwordLogin = vi.fn().mockResolvedValue({ accessToken: 'signed.jwt.value', organizationId: 'staging-org' })
+  render(<App
+    clientFactory={factory}
+    simpleLogin={{ apiBaseUrl: 'https://staging.example.test/api' }}
+    passwordLogin={passwordLogin}
+  />)
+
+  expect(screen.queryByLabelText('API base URL')).toBeNull()
+  expect(screen.queryByLabelText('Organization ID')).toBeNull()
+  expect(screen.queryByLabelText('Access token')).toBeNull()
+  const password = screen.getByLabelText('Password') as HTMLInputElement
+  expect(password.type).toBe('password')
+  expect(password.autocomplete).toBe('new-password')
+  fireEvent.change(password, { target: { value: 'staging password' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Enter workspace' }))
+
+  expect(await screen.findByText('Start with the product.')).toBeTruthy()
+  expect(passwordLogin).toHaveBeenCalledWith('https://staging.example.test/api', 'staging password')
+  expect(factory).toHaveBeenCalledWith({
+    apiBaseUrl: 'https://staging.example.test/api', organizationId: 'staging-org', accessToken: 'signed.jwt.value',
+  })
+  expect(JSON.stringify(localStorage)).not.toContain('staging password')
+  expect(JSON.stringify(localStorage)).not.toContain('signed.jwt.value')
+})
+
+it('clears the staging password field after a rejected login', async () => {
+  const passwordLogin = vi.fn().mockRejectedValue(new ApiError(401, 'Authentication is required'))
+  render(<App
+    simpleLogin={{ apiBaseUrl: 'https://staging.example.test/api' }}
+    passwordLogin={passwordLogin}
+  />)
+  const password = screen.getByLabelText('Password') as HTMLInputElement
+  fireEvent.change(password, { target: { value: 'wrong password' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Enter workspace' }))
+
+  expect((await screen.findByRole('alert')).textContent).toBe('Authentication is required')
+  expect(password.value).toBe('')
+})
 
 it('connects without persisting the bearer token', async () => {
   const factory = vi.fn().mockReturnValue(api)

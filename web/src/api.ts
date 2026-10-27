@@ -127,6 +127,34 @@ export function createApiClient(connection: ApiConnection): CreativeIntelligence
   }
 }
 
+export interface StagingSession {
+  accessToken: string
+  organizationId: string
+}
+
+export async function exchangeStagingPassword(apiBaseUrl: string, password: string): Promise<StagingSession> {
+  const baseUrl = normalizeApiBaseUrl(apiBaseUrl)
+  if (typeof password !== 'string' || password.length < 1 || password.length > 1_024) throw new ApiError(400, 'Password is required')
+  let response: Response
+  try {
+    response = await fetch(`${baseUrl}/auth/staging-login`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    })
+  } catch {
+    throw new ApiError(0, 'Unable to reach the API')
+  }
+  const contentType = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
+  if (contentType !== 'application/json') throw invalidResponse(response.ok ? 502 : response.status)
+  let payload: unknown
+  try { payload = await response.json() } catch { throw invalidResponse(response.ok ? 502 : response.status) }
+  if (!response.ok) throw new ApiError(response.status, publicError(payload))
+  const record = exactObject(payload, ['accessToken', 'organizationId'])
+  if (!isBoundedString(record.accessToken, 1, 8_192) || !isBoundedString(record.organizationId, 1, 256)) throw invalidResponse()
+  return { accessToken: record.accessToken, organizationId: record.organizationId }
+}
+
 export function normalizeApiBaseUrl(value: string): string {
   const candidate = value.trim()
   if (!candidate) {

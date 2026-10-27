@@ -1,9 +1,13 @@
+import { isIP } from 'node:net'
+import { isAbsolute, normalize } from 'node:path'
+
 import { createOidcAuthenticator, type OidcAuthenticatorConfig } from '../auth/oidc-authenticator.ts'
 import { validateCursorSigningKey, type CursorSigningKey } from '../http/pagination.ts'
 
 export interface RuntimeConfig {
   host: string
   port: number
+  trustedProxies: string[]
   database: {
     url: string
     expectedRole: string
@@ -13,6 +17,17 @@ export interface RuntimeConfig {
   }
   cursorSigningKey: CursorSigningKey
   oidc: OidcAuthenticatorConfig
+  stagingLogin?: {
+    passwordHashFile: string
+    privateKeyFile: string
+    keyId: string
+    subject: string
+    organizationId: string
+    tokenTtlSeconds: number
+    maxAttempts: number
+    attemptWindowMs: number
+    maxConcurrency: number
+  }
   apify: {
     apiToken: string
     timeoutMs: number
@@ -29,6 +44,10 @@ export function parseRuntimeConfig(environment: Readonly<Record<string, string |
     const host = required(environment, 'HOST', 255)
     if (/\s|[\u0000-\u001f\u007f]/u.test(host)) throw new Error('invalid host')
     const port = integer(environment, 'PORT', 1, 65_535)
+    const trustedProxies = csv(environment, 'TRUSTED_PROXY_ADDRESSES')
+    if (trustedProxies.length > 16 || trustedProxies.some((value) => isIP(value) === 0) || new Set(trustedProxies).size !== trustedProxies.length) {
+      throw new Error('invalid trusted proxies')
+    }
     const databaseUrl = required(environment, 'DATABASE_URL', 4_096)
     const database = new URL(databaseUrl)
     if ((database.protocol !== 'postgres:' && database.protocol !== 'postgresql:') || database.hash) throw new Error('invalid database URL')
@@ -57,9 +76,15 @@ export function parseRuntimeConfig(environment: Readonly<Record<string, string |
     if (countryCode !== 'ALL' && !/^[A-Z]{2}$/u.test(countryCode)) throw new Error('invalid Apify country code')
     const apifyApiToken = required(environment, 'APIFY_API_TOKEN', 4_096)
     if (apifyApiToken.length < 10) throw new Error('invalid Apify API token')
+    const stagingLogin = parseStagingLogin(environment)
+    if (stagingLogin) {
+      const subjectMaximum = oidc.subjectMaxLength ?? 128
+      if (!oidc.algorithms.includes('RS256') || stagingLogin.subject.length > subjectMaximum) throw new Error('staging signer does not match OIDC verifier')
+    }
     return {
       host,
       port,
+      trustedProxies,
       database: {
         url: databaseUrl,
         expectedRole,
@@ -69,6 +94,7 @@ export function parseRuntimeConfig(environment: Readonly<Record<string, string |
       },
       cursorSigningKey,
       oidc,
+      ...(stagingLogin ? { stagingLogin } : {}),
       apify: {
         apiToken: apifyApiToken,
         timeoutMs: integer(environment, 'APIFY_TIMEOUT_MS', 100, 120_000),
@@ -82,6 +108,38 @@ export function parseRuntimeConfig(environment: Readonly<Record<string, string |
   } catch {
     throw new Error('Runtime configuration is invalid')
   }
+}
+
+function parseStagingLogin(environment: Readonly<Record<string, string | undefined>>): RuntimeConfig['stagingLogin'] {
+  const enabled = environment.STAGING_PASSWORD_LOGIN_ENABLED
+  const settingNames = [
+    'STAGING_LOGIN_PASSWORD_HASH_FILE', 'STAGING_LOGIN_PRIVATE_KEY_FILE', 'STAGING_LOGIN_KEY_ID', 'STAGING_LOGIN_SUBJECT', 'STAGING_LOGIN_ORGANIZATION_ID',
+    'STAGING_LOGIN_TOKEN_TTL_SECONDS', 'STAGING_LOGIN_MAX_ATTEMPTS', 'STAGING_LOGIN_ATTEMPT_WINDOW_MS', 'STAGING_LOGIN_MAX_CONCURRENCY',
+  ]
+  if (enabled === undefined) {
+    if (settingNames.some((name) => environment[name] !== undefined)) throw new Error('staging login settings require explicit enablement')
+    return undefined
+  }
+  if (enabled !== 'true') throw new Error('invalid staging login enablement')
+  const passwordHashFile = absolutePath(environment, 'STAGING_LOGIN_PASSWORD_HASH_FILE')
+  const privateKeyFile = absolutePath(environment, 'STAGING_LOGIN_PRIVATE_KEY_FILE')
+  return {
+    passwordHashFile,
+    privateKeyFile,
+    keyId: required(environment, 'STAGING_LOGIN_KEY_ID', 128),
+    subject: required(environment, 'STAGING_LOGIN_SUBJECT', 200),
+    organizationId: required(environment, 'STAGING_LOGIN_ORGANIZATION_ID', 256),
+    tokenTtlSeconds: integer(environment, 'STAGING_LOGIN_TOKEN_TTL_SECONDS', 300, 43_200),
+    maxAttempts: integer(environment, 'STAGING_LOGIN_MAX_ATTEMPTS', 1, 100),
+    attemptWindowMs: integer(environment, 'STAGING_LOGIN_ATTEMPT_WINDOW_MS', 1_000, 3_600_000),
+    maxConcurrency: integer(environment, 'STAGING_LOGIN_MAX_CONCURRENCY', 1, 16),
+  }
+}
+
+function absolutePath(environment: Readonly<Record<string, string | undefined>>, name: string): string {
+  const value = required(environment, name, 4_096)
+  if (!isAbsolute(value) || normalize(value) !== value) throw new Error(`invalid ${name}`)
+  return value
 }
 
 function required(environment: Readonly<Record<string, string | undefined>>, name: string, maxLength: number): string {
