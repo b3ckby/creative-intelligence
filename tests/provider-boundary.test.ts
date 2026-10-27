@@ -70,6 +70,45 @@ test('provider namespace comes from the trusted registry key', async () => {
   assert.deepEqual(ads.map((ad) => ad.providerName).sort(), ['second-provider', 'trusted-provider'])
 })
 
+test('provider records preserve validated expanded metadata through the domain contract', async () => {
+  const expanded: CollectedAd = {
+    ...validAd,
+    pageId: 'page-1',
+    headline: 'Headline',
+    description: 'Description',
+    displayFormat: 'VIDEO',
+    adType: 'video',
+    endedAt: '2026-09-02T00:00:00.000Z',
+    publisherPlatforms: ['facebook', 'instagram'],
+    impressionsLowerBound: 100,
+    impressionsUpperBound: 200,
+    spendLowerBound: 10.5,
+    spendUpperBound: 20.5,
+    currency: 'USD',
+    media: [{ kind: 'video', sourceUrl: 'https://cdn.example.test/ad.mp4', posterUrl: null, cardIndex: null, order: 0 }],
+    mediaUrls: ['https://cdn.example.test/ad.mp4'],
+  }
+  const { app, competitor, context } = setup(new Map([['expanded-provider', { async collect() { return [expanded] } }]]))
+
+  await app.ads.collect('expanded-provider', context)
+
+  const stored = app.ads.listForCompetitor('org-1', competitor.id, 100)[0]
+  assert.ok(stored)
+  assert.equal(stored.pageId, 'page-1')
+  assert.equal(stored.headline, 'Headline')
+  assert.equal(stored.description, 'Description')
+  assert.equal(stored.displayFormat, 'VIDEO')
+  assert.equal(stored.adType, 'video')
+  assert.equal(stored.endedAt, '2026-09-02T00:00:00.000Z')
+  assert.deepEqual(stored.publisherPlatforms, ['facebook', 'instagram'])
+  assert.equal(stored.impressionsLowerBound, 100)
+  assert.equal(stored.impressionsUpperBound, 200)
+  assert.equal(stored.spendLowerBound, 10.5)
+  assert.equal(stored.spendUpperBound, 20.5)
+  assert.equal(stored.currency, 'USD')
+  assert.deepEqual(stored.media, expanded.media)
+})
+
 test('provider identifiers reject control characters without persisting records', async () => {
   const invalid: CollectedAd = { ...validAd, externalId: 'meta\u0000other' }
   const { app, competitor, context } = setup(new Map([['control-provider', { async collect() { return [invalid] } }]]))

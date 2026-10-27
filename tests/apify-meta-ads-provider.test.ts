@@ -58,11 +58,28 @@ test('Apify provider calls the Muppets actor with header auth and normalizes rec
   assert.deepEqual(result, [{
     platform: 'meta',
     externalId: 'archive-1',
+    pageId: null,
     advertiserName: 'Orbit',
     body: 'Build faster.',
+    headline: null,
+    description: null,
     callToAction: 'Learn more',
+    displayFormat: null,
+    adType: 'video',
     startedAt: '2025-10-12T00:00:00.000Z',
+    endedAt: null,
     isActive: true,
+    publisherPlatforms: null,
+    impressionsLowerBound: null,
+    impressionsUpperBound: null,
+    spendLowerBound: null,
+    spendUpperBound: null,
+    currency: null,
+    media: [
+      { kind: 'image', sourceUrl: 'https://cdn.example.test/creative.jpg', posterUrl: null, cardIndex: null, order: 0 },
+      { kind: 'video', sourceUrl: 'https://cdn.example.test/creative.mp4', posterUrl: null, cardIndex: null, order: 1 },
+      { kind: 'image', sourceUrl: 'https://cdn.example.test/card.jpg', posterUrl: null, cardIndex: 0, order: 2 },
+    ],
     mediaUrls: [
       'https://cdn.example.test/creative.jpg',
       'https://cdn.example.test/creative.mp4',
@@ -70,6 +87,80 @@ test('Apify provider calls the Muppets actor with header auth and normalizes rec
     ],
     sourceUrl: 'https://www.facebook.com/ads/library/?id=archive-1',
   }])
+})
+
+test('Apify provider preserves expanded metadata and structured media without inventing zero values', async () => {
+  const provider = providerWithResponse([{
+    ...actorRecord,
+    page_id: 'page-123',
+    end_date: 1_760_313_600,
+    publisher_platform: ['facebook', 'instagram'],
+    impressions: { lower_bound: '1000', upper_bound: '1999' },
+    spend: { lower_bound: '25.50', upper_bound: '49.75', currency: 'USD' },
+    snapshot: {
+      ...actorRecord.snapshot,
+      title: 'Move faster',
+      link_description: 'One focused workspace',
+      display_format: 'CAROUSEL',
+      images: [],
+      videos: [],
+      cards: [
+        { original_image_url: 'https://cdn.example.test/card-1.jpg' },
+        {
+          video_hd_url: 'https://cdn.example.test/card-2.mp4',
+          video_preview_image_url: 'https://cdn.example.test/card-2-poster.jpg',
+        },
+      ],
+    },
+  }])
+
+  const [ad] = await provider.collect(context)
+
+  assert.deepEqual(ad, {
+    platform: 'meta',
+    externalId: 'archive-1',
+    pageId: 'page-123',
+    advertiserName: 'Orbit',
+    body: 'Build faster.',
+    headline: 'Move faster',
+    description: 'One focused workspace',
+    callToAction: 'Learn more',
+    displayFormat: 'CAROUSEL',
+    adType: 'carousel',
+    startedAt: '2025-10-12T00:00:00.000Z',
+    endedAt: '2025-10-13T00:00:00.000Z',
+    isActive: true,
+    publisherPlatforms: ['facebook', 'instagram'],
+    impressionsLowerBound: 1000,
+    impressionsUpperBound: 1999,
+    spendLowerBound: 25.5,
+    spendUpperBound: 49.75,
+    currency: 'USD',
+    media: [
+      { kind: 'image', sourceUrl: 'https://cdn.example.test/card-1.jpg', posterUrl: null, cardIndex: 0, order: 0 },
+      { kind: 'video', sourceUrl: 'https://cdn.example.test/card-2.mp4', posterUrl: 'https://cdn.example.test/card-2-poster.jpg', cardIndex: 1, order: 1 },
+    ],
+    mediaUrls: [
+      'https://cdn.example.test/card-1.jpg',
+      'https://cdn.example.test/card-2.mp4',
+      'https://cdn.example.test/card-2-poster.jpg',
+    ],
+    sourceUrl: 'https://www.facebook.com/ads/library/?id=archive-1',
+  })
+})
+
+test('Apify provider preserves card positions when cards reuse the same media URL', async () => {
+  const shared = 'https://cdn.example.test/shared.jpg'
+  const provider = providerWithResponse([{ ...actorRecord, snapshot: {
+    ...actorRecord.snapshot, display_format: 'CAROUSEL', videos: [], images: [{ original_image_url: shared }],
+    cards: [{ original_image_url: shared }, { original_image_url: shared }],
+  } }])
+  const [collected] = await provider.collect(context)
+  assert.deepEqual(collected?.media?.map(({ sourceUrl, cardIndex, order }) => ({ sourceUrl, cardIndex, order })), [
+    { sourceUrl: shared, cardIndex: null, order: 0 },
+    { sourceUrl: shared, cardIndex: 0, order: 1 },
+    { sourceUrl: shared, cardIndex: 1, order: 2 },
+  ])
 })
 
 test('Facebook page normalization accepts only canonical Facebook HTTPS inputs', () => {
@@ -84,6 +175,22 @@ test('Facebook page normalization accepts only canonical Facebook HTTPS inputs',
 test('Apify provider rejects malformed records atomically with a fixed error', async () => {
   const provider = providerWithResponse([actorRecord, { ...actorRecord, ad_archive_id: '' }])
   await assert.rejects(provider.collect(context), exactProviderError)
+})
+
+test('Apify provider rejects an end timestamp before the start timestamp', async () => {
+  const provider = providerWithResponse([{
+    ...actorRecord,
+    end_date: actorRecord.start_date - 1,
+  }])
+
+  await assert.rejects(provider.collect(context), exactProviderError)
+})
+
+test('Apify provider rejects non-string values in optional text fields', async () => {
+  for (const invalidValue of [{ injected: true }, ['headline'], 123, false]) {
+    const provider = providerWithResponse([{ ...actorRecord, page_id: invalidValue }])
+    await assert.rejects(provider.collect(context), exactProviderError)
+  }
 })
 
 test('Apify provider rejects duplicate IDs and oversized actor batches', async () => {

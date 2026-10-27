@@ -51,6 +51,12 @@ export class ExternalProviderError extends ApplicationError {
   }
 }
 
+export class AiProviderError extends ApplicationError {
+  constructor() {
+    super(502, 'AI provider is unavailable')
+  }
+}
+
 export class ServiceUnavailableError extends ApplicationError {
   constructor() {
     super(503, 'Service unavailable')

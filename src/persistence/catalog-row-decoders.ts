@@ -1,5 +1,5 @@
 import { DataIntegrityError, ValidationError } from '../domain/errors.ts'
-import { AD_BODY_MAX_LENGTH, type Competitor, type CompetitorAd, type Product } from '../domain/types.ts'
+import { AD_BODY_MAX_LENGTH, type AdMedia, type AdType, type Competitor, type CompetitorAd, type Product } from '../domain/types.ts'
 import {
   validateCanonicalHttpsUrl,
   validateCanonicalHttpsUrlArray,
@@ -42,6 +42,12 @@ export function decodeAdRow(value: unknown): CompetitorAd {
   if (row.platform !== 'meta') throw integrity('ad.platform')
   if (typeof row.is_active !== 'boolean') throw integrity('ad.is_active')
   if (typeof row.provider_name !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(row.provider_name)) throw integrity('ad.provider_name')
+  const impressionsLowerBound = storedNullableNonNegativeNumber(row.impressions_lower_bound, 'ad.impressions_lower_bound')
+  const impressionsUpperBound = storedNullableNonNegativeNumber(row.impressions_upper_bound, 'ad.impressions_upper_bound')
+  const spendLowerBound = storedNullableNonNegativeNumber(row.spend_lower_bound, 'ad.spend_lower_bound')
+  const spendUpperBound = storedNullableNonNegativeNumber(row.spend_upper_bound, 'ad.spend_upper_bound')
+  if (impressionsLowerBound !== null && impressionsUpperBound !== null && impressionsLowerBound > impressionsUpperBound) throw integrity('ad.impressions')
+  if (spendLowerBound !== null && spendUpperBound !== null && spendLowerBound > spendUpperBound) throw integrity('ad.spend')
   return withCursorTimestamp({
     id: storedIdentifier(row.id, 'ad.id'),
     organizationId: storedIdentifier(row.organization_id, 'ad.organization_id'),
@@ -50,11 +56,26 @@ export function decodeAdRow(value: unknown): CompetitorAd {
     providerName: storedIdentifier(row.provider_name, 'ad.provider_name', 64),
     platform: row.platform,
     externalId: storedIdentifier(row.external_id, 'ad.external_id'),
+    pageId: storedOptionalNullableText(row.page_id, 'ad.page_id', 256),
     advertiserName: storedText(row.advertiser_name, 'ad.advertiser_name', 500, false),
     body: storedText(row.body, 'ad.body', AD_BODY_MAX_LENGTH, true),
+    headline: storedOptionalNullableText(row.headline, 'ad.headline', 500),
+    description: storedOptionalNullableText(row.description, 'ad.description', 2_000),
     callToAction: storedNullableText(row.call_to_action, 'ad.call_to_action', 100),
+    displayFormat: storedOptionalNullableText(row.display_format, 'ad.display_format', 100),
+    adType: storedAdType(row.ad_type),
     startedAt: storedTimestamp(row.started_at, 'ad.started_at'),
+    endedAt: storedOptionalNullableTimestamp(row.ended_at, 'ad.ended_at'),
     isActive: row.is_active,
+    publisherPlatforms: row.publisher_platforms === undefined || row.publisher_platforms === null
+      ? null
+      : storedTextArray(row.publisher_platforms, 'ad.publisher_platforms', 20, 100),
+    impressionsLowerBound,
+    impressionsUpperBound,
+    spendLowerBound,
+    spendUpperBound,
+    currency: storedCurrency(row.currency),
+    media: storedMedia(row.media),
     mediaUrls: storedHttpsUrlArray(row.media_urls, 'ad.media_urls'),
     sourceUrl: storedHttpsUrl(row.source_url, 'ad.source_url'),
     firstSeenAt: storedTimestamp(row.first_seen_at, 'ad.first_seen_at'),
@@ -70,6 +91,10 @@ export function storedTimestamp(value: unknown, field: string): string {
 
 function storedNullableTimestamp(value: unknown, field: string): string | null {
   return value === null ? null : storedTimestamp(value, field)
+}
+
+function storedOptionalNullableTimestamp(value: unknown, field: string): string | null {
+  return value === undefined || value === null ? null : storedTimestamp(value, field)
 }
 
 function storedRecord(value: unknown, field: string): Record<string, unknown> {
@@ -89,6 +114,46 @@ function storedText(value: unknown, field: string, max: number, allowEmpty: bool
 
 function storedNullableText(value: unknown, field: string, max: number): string | null {
   return value === null ? null : storedText(value, field, max, false)
+}
+
+function storedOptionalNullableText(value: unknown, field: string, max: number): string | null {
+  return value === undefined || value === null ? null : storedText(value, field, max, false)
+}
+
+function storedAdType(value: unknown): AdType | null {
+  if (value === undefined || value === null) return null
+  if (value !== 'image' && value !== 'video' && value !== 'carousel' && value !== 'text') throw integrity('ad.ad_type')
+  return value
+}
+
+function storedNullableNonNegativeNumber(value: unknown, field: string): number | null {
+  if (value === undefined || value === null) return null
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' && /^\d+(?:\.\d+)?$/u.test(value) ? Number(value) : Number.NaN
+  if (!Number.isFinite(parsed) || parsed < 0) throw integrity(field)
+  return parsed
+}
+
+function storedCurrency(value: unknown): string | null {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'string' || !/^[A-Z]{3}$/u.test(value)) throw integrity('ad.currency')
+  return value
+}
+
+function storedMedia(value: unknown): AdMedia[] | null {
+  if (value === undefined || value === null) return null
+  if (!Array.isArray(value) || value.length > 50) throw integrity('ad.media')
+  return value.map((item, index) => {
+    const media = storedRecord(item, 'ad.media')
+    if ((media.kind !== 'image' && media.kind !== 'video') || media.order !== index) throw integrity('ad.media')
+    if (media.cardIndex !== null && (!Number.isSafeInteger(media.cardIndex) || (media.cardIndex as number) < 0 || (media.cardIndex as number) > 49)) throw integrity('ad.media')
+    return {
+      kind: media.kind,
+      sourceUrl: storedHttpsUrl(media.sourceUrl, 'ad.media.sourceUrl'),
+      posterUrl: media.posterUrl === null ? null : storedHttpsUrl(media.posterUrl, 'ad.media.posterUrl'),
+      cardIndex: media.cardIndex as number | null,
+      order: index,
+    }
+  })
 }
 
 function storedTextArray(value: unknown, field: string, maxItems = 100, maxItemLength = 500): string[] {

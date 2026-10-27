@@ -9,13 +9,34 @@ export interface AdCollectionContext {
 export interface CollectedAd {
   platform: AdPlatform
   externalId: string
+  pageId?: string | null
   advertiserName: string
   body: string
+  headline?: string | null
+  description?: string | null
   callToAction: string | null
+  displayFormat?: string | null
+  adType?: 'image' | 'video' | 'carousel' | 'text' | null
   startedAt: string
+  endedAt?: string | null
   isActive: boolean
+  publisherPlatforms?: string[] | null
+  impressionsLowerBound?: number | null
+  impressionsUpperBound?: number | null
+  spendLowerBound?: number | null
+  spendUpperBound?: number | null
+  currency?: string | null
+  media?: CollectedAdMedia[] | null
   mediaUrls: string[]
   sourceUrl: string
+}
+
+export interface CollectedAdMedia {
+  kind: 'image' | 'video'
+  sourceUrl: string
+  posterUrl: string | null
+  cardIndex: number | null
+  order: number
 }
 
 export interface AdSourceProvider {

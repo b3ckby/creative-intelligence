@@ -2836,6 +2836,18 @@
                             "maxLength": 256,
                             "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
                           },
+                          "pageId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 256,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "advertiserName": {
                             "type": "string",
                             "maxLength": 500,
@@ -2845,6 +2857,30 @@
                             "type": "string",
                             "maxLength": 20000,
                             "pattern": "^(?:$|(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+)$"
+                          },
+                          "headline": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 500,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "description": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 2000,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "callToAction": {
                             "anyOf": [
@@ -2858,13 +2894,192 @@
                               }
                             ]
                           },
+                          "displayFormat": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "adType": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "image",
+                                  "video",
+                                  "carousel",
+                                  "text"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "startedAt": {
                             "type": "string",
                             "format": "canonical-javascript-timestamp",
                             "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
                           },
+                          "endedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "canonical-javascript-timestamp",
+                                "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "isActive": {
                             "type": "boolean"
+                          },
+                          "publisherPlatforms": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "maxItems": 20,
+                                "uniqueItems": true,
+                                "items": {
+                                  "type": "string",
+                                  "maxLength": 100,
+                                  "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "impressionsLowerBound": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "impressionsUpperBound": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "spendLowerBound": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "spendUpperBound": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "currency": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^[A-Z]{3}$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "media": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "maxItems": 50,
+                                "items": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": [
+                                        "image",
+                                        "video"
+                                      ]
+                                    },
+                                    "sourceUrl": {
+                                      "type": "string",
+                                      "maxLength": 2048,
+                                      "format": "canonical-https-url",
+                                      "description": "A canonical, bounded WHATWG HTTPS URL with a hostname and without credentials or a fragment."
+                                    },
+                                    "posterUrl": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "maxLength": 2048,
+                                          "format": "canonical-https-url",
+                                          "description": "A canonical, bounded WHATWG HTTPS URL with a hostname and without credentials or a fragment."
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "cardIndex": {
+                                      "anyOf": [
+                                        {
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 49
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "order": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 49
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "sourceUrl",
+                                    "posterUrl",
+                                    "cardIndex",
+                                    "order"
+                                  ]
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "mediaUrls": {
                             "type": "array",
@@ -2902,11 +3117,24 @@
                           "providerName",
                           "platform",
                           "externalId",
+                          "pageId",
                           "advertiserName",
                           "body",
+                          "headline",
+                          "description",
                           "callToAction",
+                          "displayFormat",
+                          "adType",
                           "startedAt",
+                          "endedAt",
                           "isActive",
+                          "publisherPlatforms",
+                          "impressionsLowerBound",
+                          "impressionsUpperBound",
+                          "spendLowerBound",
+                          "spendUpperBound",
+                          "currency",
+                          "media",
                           "mediaUrls",
                           "sourceUrl",
                           "firstSeenAt",
@@ -3149,6 +3377,18 @@
                             "maxLength": 256,
                             "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
                           },
+                          "pageId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 256,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "advertiserName": {
                             "type": "string",
                             "maxLength": 500,
@@ -3158,6 +3398,30 @@
                             "type": "string",
                             "maxLength": 20000,
                             "pattern": "^(?:$|(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+)$"
+                          },
+                          "headline": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 500,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "description": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 2000,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "callToAction": {
                             "anyOf": [
@@ -3171,13 +3435,192 @@
                               }
                             ]
                           },
+                          "displayFormat": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "adType": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "image",
+                                  "video",
+                                  "carousel",
+                                  "text"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "startedAt": {
                             "type": "string",
                             "format": "canonical-javascript-timestamp",
                             "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
                           },
+                          "endedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "canonical-javascript-timestamp",
+                                "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "isActive": {
                             "type": "boolean"
+                          },
+                          "publisherPlatforms": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "maxItems": 20,
+                                "uniqueItems": true,
+                                "items": {
+                                  "type": "string",
+                                  "maxLength": 100,
+                                  "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "impressionsLowerBound": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "impressionsUpperBound": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "spendLowerBound": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "spendUpperBound": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "currency": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^[A-Z]{3}$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "media": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "maxItems": 50,
+                                "items": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "enum": [
+                                        "image",
+                                        "video"
+                                      ]
+                                    },
+                                    "sourceUrl": {
+                                      "type": "string",
+                                      "maxLength": 2048,
+                                      "format": "canonical-https-url",
+                                      "description": "A canonical, bounded WHATWG HTTPS URL with a hostname and without credentials or a fragment."
+                                    },
+                                    "posterUrl": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "maxLength": 2048,
+                                          "format": "canonical-https-url",
+                                          "description": "A canonical, bounded WHATWG HTTPS URL with a hostname and without credentials or a fragment."
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "cardIndex": {
+                                      "anyOf": [
+                                        {
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 49
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "order": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 49
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "sourceUrl",
+                                    "posterUrl",
+                                    "cardIndex",
+                                    "order"
+                                  ]
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "mediaUrls": {
                             "type": "array",
@@ -3215,11 +3658,24 @@
                           "providerName",
                           "platform",
                           "externalId",
+                          "pageId",
                           "advertiserName",
                           "body",
+                          "headline",
+                          "description",
                           "callToAction",
+                          "displayFormat",
+                          "adType",
                           "startedAt",
+                          "endedAt",
                           "isActive",
+                          "publisherPlatforms",
+                          "impressionsLowerBound",
+                          "impressionsUpperBound",
+                          "spendLowerBound",
+                          "spendUpperBound",
+                          "currency",
+                          "media",
                           "mediaUrls",
                           "sourceUrl",
                           "firstSeenAt",
@@ -3307,6 +3763,700 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/products/{productId}/analytics/scaling": {
+      "get": {
+        "operationId": "getScalingAnalytics",
+        "summary": "Rank competitor momentum from public library signals",
+        "tags": [
+          "Analytics"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "generatedAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    },
+                    "items": {
+                      "type": "array",
+                      "maxItems": 10000,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "competitorId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "competitorName": {
+                            "type": "string",
+                            "maxLength": 300,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "activeAdCount": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "newAdsLast7d": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "newAdsPrev7d": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "launchVelocityDelta": {
+                            "type": "integer"
+                          },
+                          "avgDaysActive": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "longRunnerCount": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "formatMix": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "image": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "video": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "carousel": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "text": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "image",
+                              "video",
+                              "carousel",
+                              "text"
+                            ]
+                          },
+                          "impressionWeight": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "scaleScore": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "newlyTracked": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "competitorId",
+                          "competitorName",
+                          "activeAdCount",
+                          "newAdsLast7d",
+                          "newAdsPrev7d",
+                          "launchVelocityDelta",
+                          "avgDaysActive",
+                          "longRunnerCount",
+                          "formatMix",
+                          "scaleScore",
+                          "newlyTracked"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "generatedAt",
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/products/{productId}/ads/{adId}/creative-analysis": {
+      "post": {
+        "operationId": "analyzeCreative",
+        "summary": "Analyze a creative with the configured AI provider",
+        "tags": [
+          "Creative Analysis"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "adId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "organizationId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "productId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "competitorAdId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "analysisVersion": {
+                      "type": "string",
+                      "maxLength": 128,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "modelProvider": {
+                      "type": "string",
+                      "maxLength": 64,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "modelName": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "promptVersion": {
+                      "type": "string",
+                      "maxLength": 128,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "inputFingerprint": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "tags": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "hookCategory": {
+                          "type": "string",
+                          "enum": [
+                            "pain_point",
+                            "results",
+                            "pattern_interrupt",
+                            "pov_hook",
+                            "listicle_hook",
+                            "curiosity",
+                            "data",
+                            "social_proof"
+                          ]
+                        },
+                        "angle": {
+                          "type": "string",
+                          "enum": [
+                            "emotional",
+                            "rational",
+                            "identity",
+                            "urgency",
+                            "authority"
+                          ]
+                        },
+                        "emotion": {
+                          "type": "string",
+                          "maxLength": 40,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "persona": {
+                          "type": "string",
+                          "maxLength": 120,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "format": {
+                          "type": "string",
+                          "enum": [
+                            "ugc",
+                            "asmr",
+                            "podcast",
+                            "pov",
+                            "review",
+                            "teaser",
+                            "stream",
+                            "tutorial",
+                            "documentary",
+                            "news_story",
+                            "meme",
+                            "action",
+                            "drama",
+                            "cartoon"
+                          ]
+                        },
+                        "offerFrame": {
+                          "type": "string",
+                          "enum": [
+                            "discount",
+                            "demo",
+                            "free_tool",
+                            "bundle",
+                            "guarantee",
+                            "social_proof",
+                            "none"
+                          ]
+                        },
+                        "cta": {
+                          "type": "string",
+                          "maxLength": 120,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "onScreenText": {
+                          "type": "string",
+                          "maxLength": 600,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "visualSummary": {
+                          "type": "string",
+                          "maxLength": 600,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "funnelStage": {
+                          "type": "string",
+                          "enum": [
+                            "awareness",
+                            "consideration",
+                            "conversion",
+                            "retention"
+                          ]
+                        },
+                        "confidence": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      },
+                      "required": [
+                        "hookCategory",
+                        "angle",
+                        "emotion",
+                        "persona",
+                        "format",
+                        "offerFrame",
+                        "cta",
+                        "visualSummary",
+                        "funnelStage",
+                        "confidence"
+                      ]
+                    },
+                    "analyzedAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    }
+                  },
+                  "required": [
+                    "organizationId",
+                    "productId",
+                    "competitorAdId",
+                    "analysisVersion",
+                    "modelProvider",
+                    "modelName",
+                    "promptVersion",
+                    "inputFingerprint",
+                    "tags",
+                    "analyzedAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "External provider unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -3463,7 +4613,16 @@
                         "format"
                       ]
                     },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
                     "createdAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    },
+                    "updatedAt": {
                       "type": "string",
                       "format": "canonical-javascript-timestamp",
                       "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
@@ -3479,7 +4638,9 @@
                     "hook",
                     "callToAction",
                     "dimensions",
-                    "createdAt"
+                    "version",
+                    "createdAt",
+                    "updatedAt"
                   ]
                 }
               }
@@ -3798,7 +4959,16 @@
                         "format"
                       ]
                     },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
                     "createdAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    },
+                    "updatedAt": {
                       "type": "string",
                       "format": "canonical-javascript-timestamp",
                       "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
@@ -3814,7 +4984,9 @@
                     "hook",
                     "callToAction",
                     "dimensions",
-                    "createdAt"
+                    "version",
+                    "createdAt",
+                    "updatedAt"
                   ]
                 }
               }
@@ -4173,7 +5345,16 @@
                               "format"
                             ]
                           },
+                          "version": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
                           "createdAt": {
+                            "type": "string",
+                            "format": "canonical-javascript-timestamp",
+                            "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                          },
+                          "updatedAt": {
                             "type": "string",
                             "format": "canonical-javascript-timestamp",
                             "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
@@ -4189,7 +5370,9 @@
                           "hook",
                           "callToAction",
                           "dimensions",
-                          "createdAt"
+                          "version",
+                          "createdAt",
+                          "updatedAt"
                         ]
                       }
                     },
@@ -4419,7 +5602,16 @@
                         "format"
                       ]
                     },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
                     "createdAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    },
+                    "updatedAt": {
                       "type": "string",
                       "format": "canonical-javascript-timestamp",
                       "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
@@ -4435,7 +5627,9 @@
                     "hook",
                     "callToAction",
                     "dimensions",
-                    "createdAt"
+                    "version",
+                    "createdAt",
+                    "updatedAt"
                   ]
                 }
               }
@@ -4462,6 +5656,684 @@
           },
           "401": {
             "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateBrief",
+        "summary": "Update a brief with optimistic concurrency",
+        "tags": [
+          "Briefs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "briefId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "organizationId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "productId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "title": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "triage",
+                        "approved",
+                        "production",
+                        "review",
+                        "completed",
+                        "archived"
+                      ]
+                    },
+                    "sourceAdId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 256,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "hook": {
+                      "type": "string",
+                      "maxLength": 20000,
+                      "pattern": "^(?:$|(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+)$"
+                    },
+                    "callToAction": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "dimensions": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "audience": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "market": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "angle": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        },
+                        "format": {
+                          "type": "string",
+                          "maxLength": 100,
+                          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                        }
+                      },
+                      "required": [
+                        "audience",
+                        "market",
+                        "angle",
+                        "format"
+                      ]
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    },
+                    "updatedAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "organizationId",
+                    "productId",
+                    "title",
+                    "status",
+                    "sourceAdId",
+                    "hook",
+                    "callToAction",
+                    "dimensions",
+                    "version",
+                    "createdAt",
+                    "updatedAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "title": {
+                    "type": "string",
+                    "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,498}\\S))\\s*$",
+                    "description": "Leading and trailing whitespace is removed; the normalized value is at most 500 characters."
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "draft",
+                      "triage",
+                      "approved",
+                      "production",
+                      "review",
+                      "completed",
+                      "archived"
+                    ]
+                  },
+                  "hook": {
+                    "type": "string",
+                    "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,19998}\\S))?\\s*$",
+                    "description": "Leading and trailing whitespace is removed; the normalized value is at most 20000 characters."
+                  },
+                  "callToAction": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                        "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dimensions": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "audience": {
+                        "type": "string",
+                        "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                        "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                      },
+                      "market": {
+                        "type": "string",
+                        "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                        "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                      },
+                      "angle": {
+                        "type": "string",
+                        "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                        "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                      },
+                      "format": {
+                        "type": "string",
+                        "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,98}\\S))\\s*$",
+                        "description": "Leading and trailing whitespace is removed; the normalized value is at most 100 characters."
+                      }
+                    },
+                    "required": [
+                      "audience",
+                      "market",
+                      "angle",
+                      "format"
+                    ]
+                  }
+                },
+                "required": [
+                  "expectedVersion",
+                  "title",
+                  "status",
+                  "hook",
+                  "callToAction",
+                  "dimensions"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/briefs/{briefId}/versions": {
+      "get": {
+        "operationId": "listBriefVersions",
+        "summary": "List immutable brief versions",
+        "tags": [
+          "Briefs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "briefId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "organizationId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "productId": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "title": {
+                            "type": "string",
+                            "maxLength": 500,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "draft",
+                              "triage",
+                              "approved",
+                              "production",
+                              "review",
+                              "completed",
+                              "archived"
+                            ]
+                          },
+                          "sourceAdId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 256,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "hook": {
+                            "type": "string",
+                            "maxLength": 20000,
+                            "pattern": "^(?:$|(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+)$"
+                          },
+                          "callToAction": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "dimensions": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "audience": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              "market": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              "angle": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              },
+                              "format": {
+                                "type": "string",
+                                "maxLength": 100,
+                                "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                              }
+                            },
+                            "required": [
+                              "audience",
+                              "market",
+                              "angle",
+                              "format"
+                            ]
+                          },
+                          "version": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "canonical-javascript-timestamp",
+                            "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "canonical-javascript-timestamp",
+                            "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                          },
+                          "changedBy": {
+                            "type": "string",
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                          },
+                          "changedAt": {
+                            "type": "string",
+                            "format": "canonical-javascript-timestamp",
+                            "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "organizationId",
+                          "productId",
+                          "title",
+                          "status",
+                          "sourceAdId",
+                          "hook",
+                          "callToAction",
+                          "dimensions",
+                          "version",
+                          "createdAt",
+                          "updatedAt",
+                          "changedBy",
+                          "changedAt"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
             "content": {
               "application/json": {
                 "schema": {

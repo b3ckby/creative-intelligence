@@ -66,10 +66,24 @@ test('real PostgreSQL persists tenant-safe briefs and analyzes iteration maps', 
       organizationId: 'org-brief-one', productId: 'product-one', title: ' Archived ', hook: '',
       dimensions: { ...dimensions, audience: 'archived-audience' },
     })
-    await withVerifiedUserContext(runtimePool, 'admin-one', async (client) => {
-      await client.query(`UPDATE creative_briefs SET status = 'archived' WHERE organization_id = $1 AND id = $2`,
-        ['org-brief-one', archived.id])
+    await briefs.update('admin-one', 'org-brief-one', archived.id, {
+      expectedVersion: 1, title: archived.title, status: 'archived', hook: archived.hook,
+      callToAction: archived.callToAction, dimensions: archived.dimensions,
     })
+
+    const updatedManual = await briefs.update('admin-one', 'org-brief-one', manual.id, {
+      expectedVersion: 1, title: 'Ready manual', status: 'triage', hook: 'Revised hook',
+      callToAction: null, dimensions: manual.dimensions,
+    })
+    assert.equal(updatedManual.version, 2)
+    assert.equal(updatedManual.status, 'triage')
+    const versions = await briefs.listVersions('admin-one', 'org-brief-one', manual.id, 100)
+    assert.deepEqual(versions.map(({ version }) => version), [2, 1])
+    assert.ok(versions.every(({ changedBy }) => changedBy === 'admin-one'))
+    await assert.rejects(briefs.update('admin-one', 'org-brief-one', manual.id, {
+      expectedVersion: 1, title: 'Stale', status: 'draft', hook: '', callToAction: null, dimensions: manual.dimensions,
+    }), /stale/i)
+    await assert.rejects(briefs.listVersions('admin-two', 'org-brief-one', manual.id, 100), /not found/i)
 
     assert.deepEqual(manual.dimensions, { audience: 'students', market: 'US', angle: 'focus', format: 'video' })
     assert.equal(fromAd.hook, 'Winning hook')
@@ -95,7 +109,7 @@ test('real PostgreSQL persists tenant-safe briefs and analyzes iteration maps', 
     const collisionRows = await inspectionPool.query<{ id: string; organization_id: string; title: string }>(
       `SELECT id, organization_id, title FROM creative_briefs WHERE id = 'brief-manual'`,
     )
-    assert.deepEqual(collisionRows.rows, [{ id: 'brief-manual', organization_id: 'org-brief-one', title: 'Manual' }])
+    assert.deepEqual(collisionRows.rows, [{ id: 'brief-manual', organization_id: 'org-brief-one', title: 'Ready manual' }])
 
     const maps = new PostgresIterationMapRepository(runtimePool)
     const map = await maps.analyze('admin-one', {

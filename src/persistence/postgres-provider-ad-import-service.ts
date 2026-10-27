@@ -107,16 +107,34 @@ async function upsertAd(
   const result = await client.query<{ id: string; ingestion_token: string; product_id: string; competitor_id: string }>(
     `INSERT INTO competitor_ads (
       id, ingestion_token, organization_id, product_id, competitor_id, provider_name, platform,
-      external_id, advertiser_name, body, call_to_action, started_at, is_active,
-      media_urls, source_url, first_seen_at, last_seen_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16, $16)
+      external_id, page_id, advertiser_name, body, headline, description, call_to_action,
+      display_format, ad_type, started_at, ended_at, is_active, publisher_platforms,
+      impressions_lower_bound, impressions_upper_bound, spend_lower_bound, spend_upper_bound,
+      currency, media, media_urls, source_url, first_seen_at, last_seen_at
+    ) VALUES (
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+      $17, $18, $19, $20::jsonb, $21, $22, $23, $24, $25, $26::jsonb, $27::jsonb, $28, $29, $29
+    )
     ON CONFLICT (organization_id, provider_name, platform, external_id)
     DO UPDATE SET
+      page_id = EXCLUDED.page_id,
       advertiser_name = EXCLUDED.advertiser_name,
       body = EXCLUDED.body,
+      headline = EXCLUDED.headline,
+      description = EXCLUDED.description,
       call_to_action = EXCLUDED.call_to_action,
+      display_format = EXCLUDED.display_format,
+      ad_type = EXCLUDED.ad_type,
       started_at = EXCLUDED.started_at,
+      ended_at = EXCLUDED.ended_at,
       is_active = EXCLUDED.is_active,
+      publisher_platforms = EXCLUDED.publisher_platforms,
+      impressions_lower_bound = EXCLUDED.impressions_lower_bound,
+      impressions_upper_bound = EXCLUDED.impressions_upper_bound,
+      spend_lower_bound = EXCLUDED.spend_lower_bound,
+      spend_upper_bound = EXCLUDED.spend_upper_bound,
+      currency = EXCLUDED.currency,
+      media = EXCLUDED.media,
       media_urls = EXCLUDED.media_urls,
       source_url = EXCLUDED.source_url,
       last_seen_at = EXCLUDED.last_seen_at
@@ -125,8 +143,14 @@ async function upsertAd(
     RETURNING competitor_ads.id, competitor_ads.ingestion_token, competitor_ads.product_id, competitor_ads.competitor_id`,
     [
       id, ingestionToken, context.organizationId, context.productId, context.competitorId, providerName,
-      item.platform, item.externalId, item.advertiserName, item.body, item.callToAction,
-      item.startedAt, item.isActive, JSON.stringify(item.mediaUrls), item.sourceUrl, seenAt,
+      item.platform, item.externalId, item.pageId ?? null, item.advertiserName, item.body,
+      item.headline ?? null, item.description ?? null, item.callToAction, item.displayFormat ?? null,
+      item.adType ?? null, item.startedAt, item.endedAt ?? null, item.isActive,
+      item.publisherPlatforms == null ? null : JSON.stringify(item.publisherPlatforms),
+      item.impressionsLowerBound ?? null, item.impressionsUpperBound ?? null,
+      item.spendLowerBound ?? null, item.spendUpperBound ?? null, item.currency ?? null,
+      item.media == null ? null : JSON.stringify(item.media), JSON.stringify(item.mediaUrls),
+      item.sourceUrl, seenAt,
     ],
   )
   return result.rows[0]

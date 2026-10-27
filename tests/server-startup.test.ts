@@ -127,6 +127,24 @@ test('runtime configuration accepts complete opt-in staging password login setti
   }
 })
 
+test('runtime configuration accepts opt-in creative analysis only with an external credential file', () => {
+  const enabled = {
+    ...VALID_ENV,
+    CREATIVE_ANALYSIS_ENABLED: 'true',
+    GEMINI_API_KEY_FILE: '/run/credentials/gemini-api-key',
+    GEMINI_MODEL: 'gemini-2.5-flash',
+    GEMINI_TIMEOUT_MS: '30000',
+    GEMINI_MAX_CONCURRENCY: '2',
+    CREATIVE_ANALYSIS_DAILY_LIMIT: '100',
+  }
+  assert.deepEqual(parseRuntimeConfig(enabled).creativeAnalysis, {
+    apiKeyFile: '/run/credentials/gemini-api-key', model: 'gemini-2.5-flash', timeoutMs: 30_000, maxConcurrency: 2, dailyLimit: 100,
+  })
+  assert.throws(() => parseRuntimeConfig({ ...VALID_ENV, CREATIVE_ANALYSIS_ENABLED: 'true' }), { message: 'Runtime configuration is invalid' })
+  assert.throws(() => parseRuntimeConfig({ ...enabled, GEMINI_API_KEY_FILE: 'relative-key' }), { message: 'Runtime configuration is invalid' })
+  assert.throws(() => parseRuntimeConfig({ ...enabled, GEMINI_MAX_CONCURRENCY: '0' }), { message: 'Runtime configuration is invalid' })
+})
+
 test('production composition loads staging login secrets from files and enables password exchange', async () => {
   const salt = Buffer.from('0123456789abcdef', 'utf8')
   const password = 'correct horse battery staple'

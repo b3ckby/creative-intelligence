@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 import { DataType, newDb } from 'pg-mem'
+
+import { readPgMemMigration } from './helpers/pg-mem-migrations.ts'
 import { withVerifiedUserContext } from '../src/persistence/verified-user-context.ts'
 
 function postgresTestDb() {
@@ -92,6 +94,32 @@ test('database constraints reject duplicate provider identity and invalid roles'
       'brief-1', 'org-2', 'product-2', 'Cross tenant', 'draft', 'ad-1', 'Hook', '{}'::jsonb
     );
   `), /foreign key/i)
+})
+
+test('ad intelligence migration adds nullable metadata with bounded enums and ranges', async () => {
+  const initial = await readFile(new URL('../migrations/001_initial.sql', import.meta.url), 'utf8')
+  const metadata = await readFile(new URL('../migrations/006_ad_intelligence.sql', import.meta.url), 'utf8')
+  const pgMemMetadata = await readPgMemMigration(new URL('../migrations/006_ad_intelligence.sql', import.meta.url))
+  const db = postgresTestDb()
+  db.public.none(initial)
+  db.public.none(pgMemMetadata)
+
+  const columns = db.public.many(`
+    select column_name
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'competitor_ads'
+  `).map((row) => row.column_name)
+  for (const column of [
+    'page_id', 'headline', 'description', 'display_format', 'ad_type', 'ended_at',
+    'publisher_platforms', 'impressions_lower_bound', 'impressions_upper_bound',
+    'spend_lower_bound', 'spend_upper_bound', 'currency', 'media',
+  ]) assert.ok(columns.includes(column), `missing ${column}`)
+
+  assert.match(metadata, /ad_type IN \('image', 'video', 'carousel', 'text'\)/i)
+  assert.match(metadata, /impressions_lower_bound IS NULL OR impressions_lower_bound >= 0/i)
+  assert.match(metadata, /impressions_upper_bound IS NULL OR impressions_upper_bound >= impressions_lower_bound/i)
+  assert.match(metadata, /spend_upper_bound IS NULL OR spend_upper_bound >= spend_lower_bound/i)
+  assert.doesNotMatch(metadata, /DEFAULT\s+0/i)
 })
 
 test('RLS migration restricts the runtime role and fails closed without verified user context', async () => {

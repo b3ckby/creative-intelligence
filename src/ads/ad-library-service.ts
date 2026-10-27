@@ -6,6 +6,7 @@ import {
   validateCanonicalHttpsUrl,
   validateCanonicalHttpsUrlArray,
   validateCanonicalText,
+  validateCanonicalTextArray,
 } from '../domain/validation.ts'
 
 export interface AdRepository {
@@ -15,6 +16,11 @@ export interface AdRepository {
   listForCompetitor(organizationId: string, competitorId: string, limit: number): CompetitorAd[]
   findById(organizationId: string, id: string): CompetitorAd | undefined
 }
+
+type ExpandedCollectedAdFields = 'pageId' | 'headline' | 'description' | 'displayFormat' | 'adType' | 'endedAt'
+  | 'publisherPlatforms' | 'impressionsLowerBound' | 'impressionsUpperBound' | 'spendLowerBound'
+  | 'spendUpperBound' | 'currency' | 'media'
+type ValidatedCollectedAd = CollectedAd & Required<Pick<CollectedAd, ExpandedCollectedAdFields>>
 
 interface ProductLookup {
   findById(id: string): Product | undefined
@@ -82,9 +88,22 @@ export class AdLibraryService {
           ...existing,
           advertiserName: item.advertiserName,
           body: item.body,
+          pageId: item.pageId,
+          headline: item.headline,
+          description: item.description,
           callToAction: item.callToAction,
+          displayFormat: item.displayFormat,
+          adType: item.adType,
           startedAt: item.startedAt,
+          endedAt: item.endedAt,
           isActive: item.isActive,
+          publisherPlatforms: item.publisherPlatforms === null ? null : [...item.publisherPlatforms],
+          impressionsLowerBound: item.impressionsLowerBound,
+          impressionsUpperBound: item.impressionsUpperBound,
+          spendLowerBound: item.spendLowerBound,
+          spendUpperBound: item.spendUpperBound,
+          currency: item.currency,
+          media: item.media === null ? null : structuredClone(item.media),
           mediaUrls: [...item.mediaUrls],
           sourceUrl: item.sourceUrl,
           lastSeenAt: seenAt,
@@ -100,11 +119,24 @@ export class AdLibraryService {
         providerName,
         platform: item.platform,
         externalId: item.externalId,
+        pageId: item.pageId,
         advertiserName: item.advertiserName,
         body: item.body,
+        headline: item.headline,
+        description: item.description,
         callToAction: item.callToAction,
+        displayFormat: item.displayFormat,
+        adType: item.adType,
         startedAt: item.startedAt,
+        endedAt: item.endedAt,
         isActive: item.isActive,
+        publisherPlatforms: item.publisherPlatforms === null ? null : [...item.publisherPlatforms],
+        impressionsLowerBound: item.impressionsLowerBound,
+        impressionsUpperBound: item.impressionsUpperBound,
+        spendLowerBound: item.spendLowerBound,
+        spendUpperBound: item.spendUpperBound,
+        currency: item.currency,
+        media: item.media === null ? null : structuredClone(item.media),
         mediaUrls: [...item.mediaUrls],
         sourceUrl: item.sourceUrl,
         firstSeenAt: seenAt,
@@ -136,7 +168,7 @@ function validateProviderName(value: unknown): string {
   return value
 }
 
-export function validateCollectedAd(value: unknown): CollectedAd {
+export function validateCollectedAd(value: unknown): ValidatedCollectedAd {
   if (!isRecord(value)) throw new Error('Provider returned an invalid ad')
   if (value.platform !== 'meta') throw new Error('Provider ad platform is invalid')
 
@@ -153,18 +185,102 @@ export function validateCollectedAd(value: unknown): CollectedAd {
   if (typeof value.isActive !== 'boolean') throw new Error('Provider ad isActive is invalid')
   const mediaUrls = validateCanonicalHttpsUrlArray(value.mediaUrls, 'Provider ad mediaUrls')
   if (!body && mediaUrls.length === 0) throw new Error('Provider ad body or media is required')
+  const pageId = nullableText(value.pageId, 'Provider ad pageId', 256)
+  const headline = nullableText(value.headline, 'Provider ad headline', 500)
+  const description = nullableText(value.description, 'Provider ad description', 2_000)
+  const displayFormat = nullableText(value.displayFormat, 'Provider ad displayFormat', 100)
+  const endedAt = nullableTimestamp(value.endedAt, 'Provider ad endedAt')
+  const publisherPlatforms = value.publisherPlatforms === undefined || value.publisherPlatforms === null
+    ? null
+    : validateCanonicalTextArray(value.publisherPlatforms, 'Provider ad publisherPlatforms', { maxItems: 20, maxLength: 100 })
+  const impressionsLowerBound = nullableNonNegativeNumber(value.impressionsLowerBound, 'Provider ad impressionsLowerBound')
+  const impressionsUpperBound = nullableNonNegativeNumber(value.impressionsUpperBound, 'Provider ad impressionsUpperBound')
+  const spendLowerBound = nullableNonNegativeNumber(value.spendLowerBound, 'Provider ad spendLowerBound')
+  const spendUpperBound = nullableNonNegativeNumber(value.spendUpperBound, 'Provider ad spendUpperBound')
+  ensureOrderedBounds(impressionsLowerBound, impressionsUpperBound, 'Provider ad impressions')
+  ensureOrderedBounds(spendLowerBound, spendUpperBound, 'Provider ad spend')
+  const currency = nullableCurrency(value.currency)
+  const media = validateMedia(value.media)
+  const adType = validateAdType(value.adType, media, mediaUrls)
 
   return {
     platform: 'meta',
     externalId,
+    pageId,
     advertiserName,
     body,
+    headline,
+    description,
     callToAction,
+    displayFormat,
+    adType,
     startedAt: startedAt.toISOString(),
+    endedAt,
     isActive: value.isActive,
+    publisherPlatforms,
+    impressionsLowerBound,
+    impressionsUpperBound,
+    spendLowerBound,
+    spendUpperBound,
+    currency,
+    media,
     mediaUrls,
     sourceUrl,
   }
+}
+
+function nullableText(value: unknown, field: string, maxLength: number): string | null {
+  return value === undefined || value === null ? null : validateCanonicalText(value, field, { maxLength })
+}
+
+function nullableTimestamp(value: unknown, field: string): string | null {
+  if (value === undefined || value === null) return null
+  const text = validateCanonicalText(value, field, { maxLength: 100 })
+  const date = new Date(text)
+  if (Number.isNaN(date.valueOf())) throw new Error(`${field} is invalid`)
+  return date.toISOString()
+}
+
+function nullableNonNegativeNumber(value: unknown, field: string): number | null {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error(`${field} is invalid`)
+  return value
+}
+
+function ensureOrderedBounds(lower: number | null, upper: number | null, field: string): void {
+  if (lower !== null && upper !== null && lower > upper) throw new Error(`${field} bounds are invalid`)
+}
+
+function nullableCurrency(value: unknown): string | null {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'string' || !/^[A-Z]{3}$/u.test(value)) throw new Error('Provider ad currency is invalid')
+  return value
+}
+
+function validateMedia(value: unknown): NonNullable<CollectedAd['media']> | null {
+  if (value === undefined || value === null) return null
+  if (!Array.isArray(value) || value.length > 50) throw new Error('Provider ad media is invalid')
+  return value.map((item, index) => {
+    if (!isRecord(item) || (item.kind !== 'image' && item.kind !== 'video') || item.order !== index) throw new Error('Provider ad media is invalid')
+    if (item.cardIndex !== null && (!Number.isSafeInteger(item.cardIndex) || (item.cardIndex as number) < 0 || (item.cardIndex as number) > 49)) {
+      throw new Error('Provider ad media is invalid')
+    }
+    return {
+      kind: item.kind,
+      sourceUrl: validateCanonicalHttpsUrl(item.sourceUrl, 'Provider ad media sourceUrl'),
+      posterUrl: item.posterUrl === null ? null : validateCanonicalHttpsUrl(item.posterUrl, 'Provider ad media posterUrl'),
+      cardIndex: item.cardIndex as number | null,
+      order: index,
+    }
+  })
+}
+
+function validateAdType(value: unknown, _media: NonNullable<CollectedAd['media']> | null, _mediaUrls: readonly string[]): NonNullable<CollectedAd['adType']> | null {
+  if (value !== undefined && value !== null) {
+    if (value !== 'image' && value !== 'video' && value !== 'carousel' && value !== 'text') throw new Error('Provider ad adType is invalid')
+    return value
+  }
+  return null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

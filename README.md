@@ -79,7 +79,7 @@ The browser MVP lives in `web/` and builds to `dist/web/`. It connects directly 
 
 ## PostgreSQL and HTTP
 
-Apply `migrations/001_initial.sql`, `migrations/002_tenant_rls.sql`, `migrations/003_provider_sync_limits.sql`, `migrations/004_provider_sync_limits_rls.sql`, and `migrations/005_staging_login_attempts.sql` in order to an empty PostgreSQL database. Migrations `002` and `005` must run under a provisioning account allowed to create roles. The migrations create:
+Apply `migrations/001_initial.sql` through `migrations/007_creative_analysis.sql` in numeric order to an empty PostgreSQL database. Migrations `002` and `005` must run under a provisioning account allowed to create roles. The migrations create:
 
 - restricted `creative_intelligence_runtime` for application access;
 - non-login `creative_intelligence_rls_owner`, which has only schema usage, membership-table read access, and organization-row lock privileges plus `BYPASSRLS`, solely to own the security-definer policy helpers;
@@ -133,6 +133,8 @@ npm start
 ```
 
 Startup is fail-closed. It validates every bounded runtime setting, constructs the OIDC authenticator, connects to PostgreSQL, and refuses to serve when `current_user` differs from `DATABASE_RUNTIME_ROLE` or has `SUPERUSER`/`BYPASSRLS`. `DATABASE_URL` must use the restricted application login and assume `creative_intelligence_runtime`; never use a provisioning or migration credential.
+
+Creative analysis is opt-in. Set `CREATIVE_ANALYSIS_ENABLED=true`, `GEMINI_API_KEY_FILE` to an absolute protected server-side file, `GEMINI_MODEL`, `GEMINI_TIMEOUT_MS`, `GEMINI_MAX_CONCURRENCY`, and `CREATIVE_ANALYSIS_DAILY_LIMIT`. The credential is read only by the server and is sent in a request header, never a URL, browser bundle, log, or repository file. Without these settings the API starts normally and the analysis endpoint returns `503`.
 
 For a private single-user staging deployment, the optional `STAGING_*` settings expose `POST /auth/staging-login`. The endpoint verifies a scrypt password hash from a protected file, reserves attempts atomically in PostgreSQL across service instances, bounds active address buckets and concurrent derivations, and returns a short-lived RS256 token plus the server-configured organization ID. Startup exercises the database limiter, signs and verifies a probe token through the configured JWKS, derives the normal issuer-namespaced user ID, and verifies that user is already a member of `STAGING_LOGIN_ORGANIZATION_ID`; missing migration 005, weak/mismatched keys, or missing membership fail before the server listens. It is disabled unless explicitly enabled, never stores or echoes the submitted password, and does not replace production OIDC. `TRUSTED_PROXY_ADDRESSES` must list only the exact reverse-proxy IP addresses that are allowed to supply forwarding headers.
 

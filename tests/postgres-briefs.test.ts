@@ -6,15 +6,18 @@ import { DataType, newDb } from 'pg-mem'
 import { ApplicationError, ConflictError, ValidationError } from '../src/domain/errors.ts'
 import { briefFromRow, PostgresBriefRepository, type BriefRow } from '../src/persistence/postgres-brief-repository.ts'
 import type { SqlConnection, SqlPool } from '../src/persistence/postgres-organization-repository.ts'
+import { readPgMemMigration } from './helpers/pg-mem-migrations.ts'
 
 async function database() {
   const db = newDb()
   db.public.registerFunction({ name: 'length', args: [DataType.text], returns: DataType.integer, implementation: (value: string) => value.length })
   db.public.registerFunction({ name: 'trim', args: [DataType.text], returns: DataType.text, implementation: (value: string) => value.trim() })
   db.public.registerFunction({ name: 'set_config', args: [DataType.text, DataType.text, DataType.bool], returns: DataType.text, implementation: (_key: string, value: string) => value })
+  db.public.registerFunction({ name: 'jsonb_typeof', args: [DataType.jsonb], returns: DataType.text, implementation: (value: unknown) => Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value })
   const { Pool } = db.adapters.createPg()
   const pool = new Pool()
   await pool.query(await readFile(new URL('../migrations/001_initial.sql', import.meta.url), 'utf8'))
+  await pool.query(await readPgMemMigration(new URL('../migrations/008_brief_workflow.sql', import.meta.url)))
   await pool.query(`
     INSERT INTO organizations (id, name) VALUES ('org-1', 'One'), ('org-2', 'Two');
     INSERT INTO organization_members (organization_id, user_id, role) VALUES
@@ -45,6 +48,7 @@ const dimensions = { audience: ' students ', market: ' US ', angle: ' focus ', f
 const storedBriefRow = {
   id: 'brief-1', organization_id: 'org-1', product_id: 'product-1', title: 'Brief', status: 'draft',
   source_ad_id: null, hook: '', call_to_action: null, created_at: new Date('2026-10-26T12:00:00.000Z'),
+  updated_at: new Date('2026-10-26T12:00:00.000Z'), version: 1,
   dimensions: { audience: 'students', market: 'US', angle: 'focus', format: 'video' },
 } satisfies BriefRow
 
@@ -182,9 +186,47 @@ test('creates and deterministically lists a normalized manual brief', async () =
     hook: 'Hook',
     callToAction: 'Install',
     dimensions: { audience: 'students', market: 'US', angle: 'focus', format: 'video' },
+    version: 1,
     createdAt: '2026-10-26T12:00:00.000Z',
+    updatedAt: '2026-10-26T12:00:00.000Z',
   })
   assert.deepEqual(await repository.pageForProduct('user-1', 'org-1', 'product-1', { limit: 100, includeArchived: true }), [created])
+  await pool.end()
+})
+
+test('brief updates are optimistic, transition-safe, and append immutable versions', async () => {
+  const pool = await database()
+  let instant = new Date('2026-10-26T12:00:00.000Z')
+  const repository = new PostgresBriefRepository(pool, () => instant, () => 'brief-versioned')
+  const created = await repository.createManual('user-1', {
+    organizationId: 'org-1', productId: 'product-1', title: 'Original', hook: 'Hook', dimensions,
+  })
+  assert.equal(created.version, 1)
+  assert.equal(created.updatedAt, created.createdAt)
+
+  instant = new Date('2026-10-26T13:00:00.000Z')
+  const updated = await repository.update('user-1', 'org-1', created.id, {
+    expectedVersion: 1, title: ' Revised ', status: 'triage', hook: ' New hook ', callToAction: null,
+    dimensions: { audience: 'Founders', market: 'US', angle: 'Proof', format: 'Video' },
+  })
+  assert.equal(updated.version, 2)
+  assert.equal(updated.title, 'Revised')
+  assert.equal(updated.updatedAt, '2026-10-26T13:00:00.000Z')
+
+  await assert.rejects(repository.update('user-1', 'org-1', created.id, {
+    expectedVersion: 1, title: 'Stale', status: 'triage', hook: '', callToAction: null, dimensions: updated.dimensions,
+  }), ConflictError)
+  await assert.rejects(repository.update('user-1', 'org-1', created.id, {
+    expectedVersion: 2, title: 'Skip', status: 'completed', hook: '', callToAction: null, dimensions: updated.dimensions,
+  }), ValidationError)
+
+  const versions = await repository.listVersions('user-1', 'org-1', created.id, 100)
+  assert.deepEqual(versions.map(({ version, title, changedBy }) => ({ version, title, changedBy })), [
+    { version: 2, title: 'Revised', changedBy: 'user-1' },
+    { version: 1, title: 'Original', changedBy: 'user-1' },
+  ])
+  assert.equal(versions[0]?.createdAt, created.createdAt)
+  assert.equal(versions[0]?.changedAt, '2026-10-26T13:00:00.000Z')
   await pool.end()
 })
 

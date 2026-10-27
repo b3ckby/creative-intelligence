@@ -1,5 +1,5 @@
 import { ConflictError } from '../domain/errors.ts'
-import type { AdCollectionContext, AdSourceProvider, CollectedAd } from './ad-source-provider.ts'
+import type { AdCollectionContext, AdSourceProvider, CollectedAd, CollectedAdMedia } from './ad-source-provider.ts'
 
 export const APIFY_META_ADS_ACTOR_ID = 'curious_coder~facebook-ads-library-scraper'
 const APIFY_ENDPOINT = `https://api.apify.com/v2/acts/${APIFY_META_ADS_ACTOR_ID}/run-sync-get-dataset-items`
@@ -241,6 +241,7 @@ function parseActorRecord(value: unknown): CollectedAd {
   const snapshot = object(record.snapshot)
   const bodyRecord = optionalObject(snapshot.body)
   const body = boundedText(bodyRecord?.text ?? firstCardText(snapshot.cards, 'body') ?? '', 20_000, true)
+  const media = collectMedia(snapshot)
   const mediaUrls = collectMediaUrls(snapshot)
   if (body.length === 0 && mediaUrls.length === 0) throw new Error('missing creative')
   const externalId = boundedText(record.ad_archive_id, 256)
@@ -248,17 +249,72 @@ function parseActorRecord(value: unknown): CollectedAd {
     ? `https://www.facebook.com/ads/library/?id=${encodeURIComponent(externalId)}`
     : httpsUrl(record.ad_library_url)
   if (typeof record.is_active !== 'boolean') throw new Error('bad active status')
+  const impressions = optionalObject(record.impressions)
+  const spend = optionalObject(record.spend)
+  const startedAt = actorTimestamp(record.start_date, record.start_date_formatted)
+  const endedAt = optionalActorTimestamp(record.end_date, record.end_date_formatted)
+  if (endedAt !== null && endedAt < startedAt) throw new Error('bad timestamp order')
   return {
     platform: 'meta',
     externalId,
+    pageId: optionalText(record.page_id, 256),
     advertiserName: boundedText(record.page_name, 500),
     body,
+    headline: optionalText(snapshot.title ?? firstCardText(snapshot.cards, 'title'), 500),
+    description: optionalText(snapshot.link_description ?? firstCardText(snapshot.cards, 'link_description'), 2_000),
     callToAction: snapshot.cta_text === undefined || snapshot.cta_text === null ? null : boundedText(snapshot.cta_text, 100),
-    startedAt: actorTimestamp(record.start_date, record.start_date_formatted),
+    displayFormat: optionalText(snapshot.display_format, 100),
+    adType: adType(snapshot, media),
+    startedAt,
+    endedAt,
     isActive: record.is_active,
+    publisherPlatforms: optionalTextArray(record.publisher_platform, 20, 100),
+    impressionsLowerBound: optionalNonNegativeNumber(impressions?.lower_bound),
+    impressionsUpperBound: optionalNonNegativeNumber(impressions?.upper_bound),
+    spendLowerBound: optionalNonNegativeNumber(spend?.lower_bound),
+    spendUpperBound: optionalNonNegativeNumber(spend?.upper_bound),
+    currency: optionalCurrency(spend?.currency ?? record.currency),
+    media,
     mediaUrls,
     sourceUrl,
   }
+}
+
+function collectMedia(snapshot: Record<string, unknown>): CollectedAdMedia[] {
+  const media: CollectedAdMedia[] = []
+  const append = (kind: 'image' | 'video', source: unknown, poster: unknown, cardIndex: number | null) => {
+    if (source === undefined || source === null) return
+    const sourceUrl = httpsUrl(source)
+    if (media.some((item) => item.sourceUrl === sourceUrl && item.cardIndex === cardIndex && item.kind === kind)) return
+    media.push({
+      kind,
+      sourceUrl,
+      posterUrl: poster === undefined || poster === null ? null : httpsUrl(poster),
+      cardIndex,
+      order: media.length,
+    })
+    if (media.length > 50) throw new Error('too many media items')
+  }
+  for (const image of optionalObjectArray(snapshot.images, 50)) {
+    append('image', image.original_image_url ?? image.resized_image_url ?? image.url, null, null)
+  }
+  for (const video of optionalObjectArray(snapshot.videos, 50)) {
+    append('video', video.video_hd_url ?? video.video_sd_url, video.video_preview_image_url, null)
+  }
+  optionalObjectArray(snapshot.cards, 50).forEach((card, index) => {
+    const videoUrl = card.video_hd_url ?? card.video_sd_url
+    if (videoUrl !== undefined && videoUrl !== null) append('video', videoUrl, card.video_preview_image_url, index)
+    else append('image', card.original_image_url ?? card.resized_image_url, null, index)
+  })
+  return media
+}
+
+function adType(snapshot: Record<string, unknown>, media: readonly CollectedAdMedia[]): 'image' | 'video' | 'carousel' | 'text' {
+  const format = typeof snapshot.display_format === 'string' ? snapshot.display_format.toLowerCase() : ''
+  if (format.includes('carousel') || optionalObjectArray(snapshot.cards, 50).length > 1) return 'carousel'
+  if (media.some((item) => item.kind === 'video') || format.includes('video')) return 'video'
+  if (media.some((item) => item.kind === 'image') || format.includes('image')) return 'image'
+  return 'text'
 }
 
 function collectMediaUrls(snapshot: Record<string, unknown>): string[] {
@@ -289,6 +345,11 @@ function actorTimestamp(epochValue: unknown, formattedValue: unknown): string {
   return date.toISOString()
 }
 
+function optionalActorTimestamp(epochValue: unknown, formattedValue: unknown): string | null {
+  if ((epochValue === undefined || epochValue === null) && (formattedValue === undefined || formattedValue === null)) return null
+  return actorTimestamp(epochValue, formattedValue)
+}
+
 function object(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('bad object')
   return value as Record<string, unknown>
@@ -301,6 +362,27 @@ function optionalObjectArray(value: unknown, maximum: number): Array<Record<stri
 }
 function boundedText(value: unknown, maximum: number, allowEmpty = false): string {
   if (typeof value !== 'string' || value !== value.trim() || [...value].length > maximum || (!allowEmpty && value.length === 0) || /[\u0000-\u001f\u007f-\u009f]/u.test(value)) throw new Error('bad text')
+  return value
+}
+function optionalText(value: unknown, maximum: number): string | null {
+  return value === undefined || value === null ? null : boundedText(value, maximum)
+}
+function optionalTextArray(value: unknown, maximum: number, maximumItemLength: number): string[] | null {
+  if (value === undefined || value === null) return null
+  if (!Array.isArray(value) || value.length > maximum) throw new Error('bad array')
+  const result = value.map((item) => boundedText(item, maximumItemLength))
+  if (new Set(result).size !== result.length) throw new Error('duplicate array item')
+  return result
+}
+function optionalNonNegativeNumber(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null
+  const result = typeof value === 'number' ? value : typeof value === 'string' && /^\d+(?:\.\d+)?$/u.test(value) ? Number(value) : Number.NaN
+  if (!Number.isFinite(result) || result < 0) throw new Error('bad number')
+  return result
+}
+function optionalCurrency(value: unknown): string | null {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'string' || !/^[A-Z]{3}$/u.test(value)) throw new Error('bad currency')
   return value
 }
 function httpsUrl(value: unknown): string {

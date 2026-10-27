@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises'
 
 import type { FastifyRequest } from 'fastify'
 import { DataType, newDb } from 'pg-mem'
+
+import { readPgMemMigration } from './helpers/pg-mem-migrations.ts'
 import { buildApi } from '../src/http/build-api.ts'
 
 async function testApi(ids: string[]) {
@@ -11,9 +13,12 @@ async function testApi(ids: string[]) {
   db.public.registerFunction({ name: 'length', args: [DataType.text], returns: DataType.integer, implementation: (value: string) => value.length })
   db.public.registerFunction({ name: 'trim', args: [DataType.text], returns: DataType.text, implementation: (value: string) => value.trim() })
   db.public.registerFunction({ name: 'set_config', args: [DataType.text, DataType.text, DataType.bool], returns: DataType.text, implementation: (_key: string, value: string) => value })
+  db.public.registerFunction({ name: 'jsonb_typeof', args: [DataType.jsonb], returns: DataType.text, implementation: (value: unknown) => Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value })
   const { Pool } = db.adapters.createPg()
   const pool = new Pool()
   await pool.query(await readFile(new URL('../migrations/001_initial.sql', import.meta.url), 'utf8'))
+  await pool.query(await readPgMemMigration(new URL('../migrations/006_ad_intelligence.sql', import.meta.url)))
+  await pool.query(await readPgMemMigration(new URL('../migrations/008_brief_workflow.sql', import.meta.url)))
   const app = buildApi({
     pool,
     cursorSigningKey: 'test-cursor-signing-key-at-least-32-bytes',
@@ -163,6 +168,40 @@ test('brief flow creates manual/from-ad briefs and provides tenant-scoped archiv
   assert.equal(found.statusCode, 200)
   const missing = await app.inject({ method: 'GET', url: '/organizations/org-1/briefs/not-there', headers: auth })
   assert.equal(missing.statusCode, 404)
+  await app.close()
+  await pool.end()
+})
+
+test('brief HTTP workflow updates with optimistic concurrency and exposes version history', async () => {
+  const { app, pool } = await testApi(['org-1', 'product-1', 'brief-1'])
+  await createOrganization(app)
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products', headers: auth, payload: productPayload('Product') })
+  const dimensions = { audience: 'students', market: 'US', angle: 'focus', format: 'video' }
+  const created = await app.inject({
+    method: 'POST', url: '/organizations/org-1/products/product-1/briefs', headers: auth,
+    payload: { title: 'Draft', hook: 'Hook', dimensions },
+  })
+  assert.equal(created.statusCode, 201)
+  assert.equal(created.json().version, 1)
+
+  const updated = await app.inject({
+    method: 'PATCH', url: '/organizations/org-1/briefs/brief-1', headers: auth,
+    payload: { expectedVersion: 1, title: 'Ready', status: 'triage', hook: 'New hook', callToAction: 'Try', dimensions },
+  })
+  assert.equal(updated.statusCode, 200)
+  assert.equal(updated.json().version, 2)
+  assert.equal(updated.json().status, 'triage')
+
+  const stale = await app.inject({
+    method: 'PATCH', url: '/organizations/org-1/briefs/brief-1', headers: auth,
+    payload: { expectedVersion: 1, title: 'Stale', status: 'draft', hook: '', callToAction: null, dimensions },
+  })
+  assert.equal(stale.statusCode, 409)
+
+  const history = await app.inject({ method: 'GET', url: '/organizations/org-1/briefs/brief-1/versions?limit=10', headers: auth })
+  assert.equal(history.statusCode, 200)
+  assert.deepEqual(history.json().items.map((item: { version: number }) => item.version), [2, 1])
+  assert.equal(history.json().items[0].changedBy, 'admin-1')
   await app.close()
   await pool.end()
 })

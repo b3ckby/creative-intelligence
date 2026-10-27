@@ -6,12 +6,13 @@ import {
   type CreateBriefFromAdInput,
   type CreateManualBriefInput,
 } from '../briefs/brief-service.ts'
-import { ConflictError, DataIntegrityError, ValidationError } from '../domain/errors.ts'
+import { normalizeBriefUpdate, requireBriefStatusTransition, type BriefUpdateInput } from '../briefs/brief-workflow.ts'
+import { ConflictError, DataIntegrityError, NotFoundError, ValidationError } from '../domain/errors.ts'
 import { validatePageLimit } from '../domain/page-limit.ts'
 import { attachExactCursorTimestamp, type CursorPosition } from '../http/pagination.ts'
 import { validateIdentifier } from '../domain/identifiers.ts'
 import { validateCanonicalText } from '../domain/validation.ts'
-import type { BriefDimensions, BriefStatus, CompetitorAd, CreativeBrief, Product } from '../domain/types.ts'
+import type { BriefDimensions, BriefStatus, CompetitorAd, CreativeBrief, CreativeBriefVersion, Product } from '../domain/types.ts'
 import type { SqlConnection, SqlPool } from './postgres-organization-repository.ts'
 import { decodeAdRow, decodeProductRow, storedIdentifier, storedTimestamp } from './catalog-row-decoders.ts'
 import { requireBriefReadContext } from './postgres-brief-read-context.ts'
@@ -35,7 +36,7 @@ export class PostgresBriefRepository {
       return await withVerifiedUserContext(this.pool, verifiedUserId, async (client) => {
         const product = await requireProduct(client, normalized.organizationId, normalized.productId)
         const brief = buildManualBrief(normalized, product, this.now(), this.createId())
-        return insertBrief(client, brief)
+        return insertBrief(client, brief, verifiedUserId)
       })
     } catch (error) {
       throw mapInsertError(error)
@@ -48,7 +49,7 @@ export class PostgresBriefRepository {
       return await withVerifiedUserContext(this.pool, verifiedUserId, async (client) => {
         const { product, ad } = await requireProductAndAd(client, normalized.organizationId, normalized.productId, normalized.adId)
         const brief = buildBriefFromAd(normalized, product, ad, this.now(), this.createId())
-        return insertBrief(client, brief)
+        return insertBrief(client, brief, verifiedUserId)
       })
     } catch (error) {
       throw mapInsertError(error)
@@ -84,7 +85,7 @@ export class PostgresBriefRepository {
       values.push(limit + 1)
       const result = await client.query<BriefRow>(
         `SELECT id, organization_id, product_id, title, status, source_ad_id,
-                hook, call_to_action, dimensions, created_at, EXTRACT(EPOCH FROM created_at)::text AS cursor_created_at
+                hook, call_to_action, dimensions, version, created_at, updated_at, EXTRACT(EPOCH FROM created_at)::text AS cursor_created_at
          FROM creative_briefs WHERE ${predicates.join(' AND ')}
          ORDER BY created_at, id LIMIT $${values.length}`,
         values,
@@ -105,7 +106,7 @@ export class PostgresBriefRepository {
       const archivePredicate = includeArchived ? '' : "AND b.status <> 'archived' AND p.archived_at IS NULL"
       const result = await client.query<BriefRow>(
         `SELECT b.id, b.organization_id, b.product_id, b.title, b.status, b.source_ad_id,
-                b.hook, b.call_to_action, b.dimensions, b.created_at
+                b.hook, b.call_to_action, b.dimensions, b.version, b.created_at, b.updated_at
          FROM creative_briefs b
          JOIN products p ON p.organization_id = b.organization_id AND p.id = b.product_id
          WHERE b.organization_id = $1 AND b.id = $2 ${archivePredicate}`,
@@ -113,6 +114,73 @@ export class PostgresBriefRepository {
       )
       const row = result.rows[0]
       return row && briefFromRow(row)
+    })
+  }
+
+  async update(
+    verifiedUserIdInput: string,
+    organizationIdInput: string,
+    briefIdInput: string,
+    input: BriefUpdateInput,
+  ): Promise<CreativeBrief> {
+    const verifiedUserId = validateIdentifier(verifiedUserIdInput, 'Verified user ID')
+    const organizationId = validateIdentifier(organizationIdInput, 'Organization ID')
+    const briefId = validateIdentifier(briefIdInput, 'Brief ID')
+    const normalized = normalizeBriefUpdate(input)
+    return withVerifiedUserContext(this.pool, verifiedUserId, async (client) => {
+      const currentResult = await client.query<BriefRow>(
+        `SELECT id, organization_id, product_id, title, status, source_ad_id, hook, call_to_action,
+                dimensions, version, created_at, updated_at
+         FROM creative_briefs WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
+        [organizationId, briefId],
+      )
+      const currentRow = currentResult.rows[0]
+      if (!currentRow) throw new NotFoundError()
+      const current = briefFromRow(currentRow)
+      if (current.version !== normalized.expectedVersion) throw new ConflictError('Brief version is stale')
+      requireBriefStatusTransition(current.status, normalized.status)
+      const instant = this.now()
+      if (!Number.isFinite(instant.getTime())) throw new Error('Brief clock is invalid')
+      const updatedAt = instant.toISOString()
+      const result = await client.query<BriefRow>(
+        `UPDATE creative_briefs SET title = $3, status = $4, hook = $5, call_to_action = $6,
+                dimensions = $7::jsonb, version = version + 1, updated_at = $8
+         WHERE organization_id = $1 AND id = $2 AND version = $9
+         RETURNING id, organization_id, product_id, title, status, source_ad_id, hook, call_to_action,
+                   dimensions, version, created_at, updated_at`,
+        [organizationId, briefId, normalized.title, normalized.status, normalized.hook, normalized.callToAction,
+          JSON.stringify(normalized.dimensions), updatedAt, normalized.expectedVersion],
+      )
+      const row = result.rows[0]
+      if (!row) throw new ConflictError('Brief version is stale')
+      const updated = briefFromRow(row)
+      await insertBriefVersion(client, updated, verifiedUserId, updatedAt)
+      return updated
+    })
+  }
+
+  async listVersions(
+    verifiedUserIdInput: string,
+    organizationIdInput: string,
+    briefIdInput: string,
+    limitInput: number,
+  ): Promise<CreativeBriefVersion[]> {
+    const verifiedUserId = validateIdentifier(verifiedUserIdInput, 'Verified user ID')
+    const organizationId = validateIdentifier(organizationIdInput, 'Organization ID')
+    const briefId = validateIdentifier(briefIdInput, 'Brief ID')
+    const limit = validatePageLimit(limitInput)
+    return withVerifiedUserContext(this.pool, verifiedUserId, async (client) => {
+      const present = await client.query(`SELECT id FROM creative_briefs WHERE organization_id = $1 AND id = $2`, [organizationId, briefId])
+      if (present.rowCount !== 1) throw new NotFoundError()
+      const result = await client.query<BriefVersionRow>(
+        `SELECT organization_id, brief_id, product_id, version, title, status, source_ad_id,
+                hook, call_to_action, dimensions, brief_created_at, changed_by, changed_at
+         FROM creative_brief_versions
+         WHERE organization_id = $1 AND brief_id = $2
+         ORDER BY version DESC LIMIT $3`,
+        [organizationId, briefId, limit],
+      )
+      return result.rows.map(briefVersionFromRow)
     })
   }
 }
@@ -154,22 +222,36 @@ async function requireProductAndAd(
   return { product, ad: decodeAdRow(row) }
 }
 
-async function insertBrief(client: SqlConnection, brief: CreativeBrief): Promise<CreativeBrief> {
+async function insertBrief(client: SqlConnection, brief: CreativeBrief, changedBy: string): Promise<CreativeBrief> {
   const result = await client.query<BriefRow>(
     `INSERT INTO creative_briefs (
        id, organization_id, product_id, title, status, source_ad_id,
-       hook, call_to_action, dimensions, created_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
+       hook, call_to_action, dimensions, version, created_at, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12)
      RETURNING id, organization_id, product_id, title, status, source_ad_id,
-               hook, call_to_action, dimensions, created_at`,
+               hook, call_to_action, dimensions, version, created_at, updated_at`,
     [
       brief.id, brief.organizationId, brief.productId, brief.title, brief.status,
-      brief.sourceAdId, brief.hook, brief.callToAction, JSON.stringify(brief.dimensions), brief.createdAt,
+      brief.sourceAdId, brief.hook, brief.callToAction, JSON.stringify(brief.dimensions), brief.version,
+      brief.createdAt, brief.updatedAt,
     ],
   )
   const row = result.rows[0]
   if (!row) throw new ConflictError('Brief insert did not return a row')
-  return briefFromRow(row)
+  const stored = briefFromRow(row)
+  await insertBriefVersion(client, stored, changedBy, stored.createdAt)
+  return stored
+}
+
+async function insertBriefVersion(client: SqlConnection, brief: CreativeBrief, changedBy: string, changedAt: string): Promise<void> {
+  await client.query(
+    `INSERT INTO creative_brief_versions (
+       organization_id, brief_id, version, product_id, title, status, source_ad_id,
+       hook, call_to_action, dimensions, brief_created_at, changed_by, changed_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13)`,
+    [brief.organizationId, brief.id, brief.version, brief.productId, brief.title, brief.status,
+      brief.sourceAdId, brief.hook, brief.callToAction, JSON.stringify(brief.dimensions), brief.createdAt, changedBy, changedAt],
+  )
 }
 
 function mapInsertError(error: unknown): unknown {
@@ -224,7 +306,9 @@ export type BriefRow = Record<string, unknown> & {
   hook: string
   call_to_action: string | null
   dimensions: unknown
+  version: number
   created_at: Date | string
+  updated_at: Date | string
   cursor_created_at?: string
 }
 
@@ -244,11 +328,56 @@ export function briefFromRow(row: BriefRow): CreativeBrief {
     hook: storedBriefText(row.hook, 'hook', 20_000, true),
     callToAction: row.call_to_action === null ? null : storedBriefText(row.call_to_action, 'call_to_action', 100, false),
     dimensions: decodeStoredBriefDimensions(row.dimensions),
+    version: storedBriefVersion(row.version),
     createdAt: iso(row.created_at),
+    updatedAt: storedTimestamp(row.updated_at, 'brief.updated_at'),
   }
   if (row.cursor_created_at === undefined) return brief
   if (typeof row.cursor_created_at !== 'string' || !/^\d{1,20}(?:\.\d{1,6})?$/.test(row.cursor_created_at)) throw storedBriefError('cursor_created_at')
   return attachExactCursorTimestamp(brief, row.cursor_created_at)
+}
+
+function storedBriefVersion(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) throw storedBriefError('version')
+  return value
+}
+
+type BriefVersionRow = Record<string, unknown> & {
+  organization_id: string
+  brief_id: string
+  product_id: string
+  version: number
+  title: string
+  status: BriefStatus
+  source_ad_id: string | null
+  hook: string
+  call_to_action: string | null
+  dimensions: unknown
+  brief_created_at: Date | string
+  changed_by: string
+  changed_at: Date | string
+}
+
+function briefVersionFromRow(row: BriefVersionRow): CreativeBriefVersion {
+  const changedAt = storedTimestamp(row.changed_at, 'brief_version.changed_at')
+  return {
+    ...briefFromRow({
+      id: row.brief_id,
+      organization_id: row.organization_id,
+      product_id: row.product_id,
+      title: row.title,
+      status: row.status,
+      source_ad_id: row.source_ad_id,
+      hook: row.hook,
+      call_to_action: row.call_to_action,
+      dimensions: row.dimensions,
+      version: row.version,
+      created_at: row.brief_created_at,
+      updated_at: changedAt,
+    }),
+    changedBy: storedIdentifier(row.changed_by, 'brief_version.changed_by'),
+    changedAt,
+  }
 }
 
 function storedBriefText(value: unknown, field: string, max: number, allowEmpty: boolean): string {

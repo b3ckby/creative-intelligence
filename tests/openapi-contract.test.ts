@@ -20,10 +20,14 @@ const EXPECTED_OPERATIONS = [
   'POST /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/apify-meta/sync',
   'GET /organizations/{organizationId}/competitors/{competitorId}/ads',
   'GET /organizations/{organizationId}/ads',
+  'GET /organizations/{organizationId}/products/{productId}/analytics/scaling',
+  'POST /organizations/{organizationId}/products/{productId}/ads/{adId}/creative-analysis',
   'POST /organizations/{organizationId}/products/{productId}/briefs/from-ad',
   'POST /organizations/{organizationId}/products/{productId}/briefs',
   'GET /organizations/{organizationId}/products/{productId}/briefs',
   'GET /organizations/{organizationId}/briefs/{briefId}',
+  'PATCH /organizations/{organizationId}/briefs/{briefId}',
+  'GET /organizations/{organizationId}/briefs/{briefId}/versions',
   'POST /organizations/{organizationId}/products/{productId}/iteration-map/analyze',
 ].sort()
 
@@ -169,11 +173,26 @@ test('operation contracts list only endpoint-reachable error statuses', () => {
   assert.deepEqual(Object.keys(byId.listProducts!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 500])
   assert.deepEqual(Object.keys(byId.getProduct!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 500])
   assert.deepEqual(Object.keys(byId.syncApifyMetaAds!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 409, 413, 415, 500, 502, 503])
+  assert.deepEqual(Object.keys(byId.getScalingAnalytics!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 500])
   for (const operationId of ['createBriefFromAd', 'createManualBrief', 'listBriefs', 'getBrief', 'analyzeIterationMap']) {
     assert.equal(byId[operationId]!.schema.response[403], undefined, operationId)
   }
   assert.ok(OPERATIONAL_CONTRACTS[0]!.schema.response[400])
   assert.ok(OPERATIONAL_CONTRACTS[1]!.schema.response[400])
+})
+
+test('response contracts preserve AI taxonomies and structured-media bounds', () => {
+  const analysis = API_CONTRACTS.find(({ operationId }) => operationId === 'analyzeCreative')
+  const tags = (analysis?.schema.response[200] as any).properties.tags.properties
+  assert.deepEqual(tags.hookCategory.enum, ['pain_point', 'results', 'pattern_interrupt', 'pov_hook', 'listicle_hook', 'curiosity', 'data', 'social_proof'])
+  assert.deepEqual(tags.angle.enum, ['emotional', 'rational', 'identity', 'urgency', 'authority'])
+  assert.deepEqual(tags.offerFrame.enum, ['discount', 'demo', 'free_tool', 'bundle', 'guarantee', 'social_proof', 'none'])
+
+  const listAds = API_CONTRACTS.find(({ operationId }) => operationId === 'listOrganizationAds')
+  const mediaArray = (listAds?.schema.response[200] as any).properties.items.items.properties.media.anyOf[0]
+  assert.equal(mediaArray.maxItems, 50)
+  assert.equal(mediaArray.items.properties.cardIndex.anyOf[0].maximum, 49)
+  assert.equal(mediaArray.items.properties.order.maximum, 49)
 })
 
 test('package lifecycle checks generated contract drift and API guide documents public semantics', async () => {

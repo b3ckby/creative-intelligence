@@ -44,6 +44,8 @@ Documented statuses include:
 - `409` conflicting resource state;
 - `413` payload too large;
 - `415` unsupported media type;
+- `429` configured AI-analysis daily limit reached;
+- `502` external provider failure;
 - `500` sanitized internal failure;
 - `503` readiness probe unavailable.
 
@@ -68,10 +70,20 @@ Responses never include token, identity-provider, JWKS, database, SQL, private U
 ### Ads
 
 - `POST /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/manual-meta`
+- `POST /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/apify-meta/sync`
 - `GET /organizations/{organizationId}/competitors/{competitorId}/ads`
 - `GET /organizations/{organizationId}/ads`
 
 The organization ad collection supports `productId`, `competitorId`, `isActive`, and `provider` filters.
+
+Ad responses include nullable public-library metadata, structured media/card ordering, and nullable impression/spend bounds. Missing provider values remain `null`; they are never converted to zero.
+
+### Analytics and creative analysis
+
+- `GET /organizations/{organizationId}/products/{productId}/analytics/scaling`
+- `POST /organizations/{organizationId}/products/{productId}/ads/{adId}/creative-analysis`
+
+The scaling response is explicitly labeled a **Public Ad Library momentum proxy**. It is not spend, ROAS, or conversion performance. Reading it records one tenant-isolated daily snapshot per competitor. Creative analysis is versioned and fingerprinted, validates a fixed taxonomy, deduplicates the current version, and is disabled with `503` unless the server-side model credential is configured. The initial analysis uses copy and stored metadata only; it never fetches provider media URLs.
 
 ### Briefs and Iteration Map
 

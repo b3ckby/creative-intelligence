@@ -6,7 +6,8 @@ The browser workspace is a Vite/React client for the existing OpenAPI contract. 
 
 - **Products** — product context, competitive metrics, and current signals.
 - **Competitors** — tracked competitive set and canonical source links.
-- **Ad Library** — product, competitor, and active-status filtering; source inspection; brief creation from an ad. External creative media is withheld by default and loads only after an explicit per-ad action, because fetching an API-supplied media URL discloses network metadata to its host.
+- **Ad Library** — product, competitor, status, date, and media-format filtering; structured creative media; expanded nullable public-library metadata; source inspection; brief creation and on-demand versioned creative analysis. Media from an explicit Meta-host allowlist loads automatically; other HTTPS media remains inert, preventing browser requests to provider-controlled private or arbitrary hosts. Approved third-party media hosts still receive ordinary browser network metadata. The initial AI analysis never server-fetches external media URLs.
+- **Analytics** — an explicitly labeled public-library momentum proxy with launch velocity, long-running creatives, format mix, and daily tenant-isolated snapshots.
 - **Brief Builder** — manual briefs and briefs grounded in source ads.
 - **Iteration Map** — audience × market × angle × format coverage and gaps.
 

@@ -15,6 +15,8 @@ import {
   validateCanonicalHttpsUrlArray,
 } from '../domain/validation.ts'
 import { AD_BODY_MAX_LENGTH, type BriefDimensions, type Competitor, type Product } from '../domain/types.ts'
+import type { CompetitorScaleMetrics } from '../analytics/scale-metrics.ts'
+import type { CreativeAnalysisRecord } from '../creative-analysis/creative-analysis-service.ts'
 import { OrganizationService, type OrganizationRole } from '../organizations/organization-service.ts'
 import { PostgresCatalogRepository } from '../persistence/postgres-catalog-repository.ts'
 import { PostgresBriefRepository } from '../persistence/postgres-brief-repository.ts'
@@ -37,6 +39,12 @@ export interface BuildApiOptions {
   stagingLogin?: { login(password: string, remoteAddress: string): Promise<string> }
   stagingOrganizationId?: string
   trustedProxies?: string[]
+  scaleAnalytics?: {
+    get(actorUserId: string, organizationId: string, productId: string): Promise<{ label: string; generatedAt: string; items: CompetitorScaleMetrics[] }>
+  }
+  creativeAnalysis?: {
+    analyze(actorUserId: string, organizationId: string, productId: string, adId: string): Promise<CreativeAnalysisRecord>
+  }
 }
 
 export function buildApi(options: BuildApiOptions): FastifyInstance {
@@ -366,6 +374,27 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return pageFromRows(rows, page.limit, scopeFor(query, page.includeArchived), options.cursorSigningKey, (ad) => exactCursorTimestamp(ad, ad.firstSeenAt))
   })
 
+  app.get('/organizations/:organizationId/products/:productId/analytics/scaling', { schema: schemaFor('getScalingAnalytics') }, async (request) => {
+    const userId = await actor(request)
+    const organizationId = routeId(request, 'organizationId')
+    const productId = routeId(request, 'productId')
+    queryParameters(request, [])
+    await organizations.requireMembership(organizationId, userId)
+    if (!options.scaleAnalytics) throw new ServiceUnavailableError()
+    return options.scaleAnalytics.get(userId, organizationId, productId)
+  })
+
+  app.post('/organizations/:organizationId/products/:productId/ads/:adId/creative-analysis', { schema: schemaFor('analyzeCreative') }, async (request) => {
+    const userId = await actor(request)
+    const organizationId = routeId(request, 'organizationId')
+    const productId = routeId(request, 'productId')
+    const adId = routeId(request, 'adId')
+    queryParameters(request, [])
+    await organizations.requireMembership(organizationId, userId)
+    if (!options.creativeAnalysis) throw new ServiceUnavailableError()
+    return options.creativeAnalysis.analyze(userId, organizationId, productId, adId)
+  })
+
   app.post('/organizations/:organizationId/products/:productId/briefs/from-ad', { schema: schemaFor('createBriefFromAd') }, async (request, reply) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')
@@ -418,6 +447,32 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     const brief = await briefs.findById(userId, organizationId, briefId, includeArchived)
     if (!brief || (!includeArchived && brief.status === 'archived')) throw new NotFoundError()
     return brief
+  })
+
+  app.patch('/organizations/:organizationId/briefs/:briefId', { schema: schemaFor('updateBrief') }, async (request) => {
+    const userId = await actor(request)
+    const organizationId = routeId(request, 'organizationId')
+    const briefId = routeId(request, 'briefId')
+    queryParameters(request, [])
+    const body = exactRecord(request.body, ['expectedVersion', 'title', 'status', 'hook', 'callToAction', 'dimensions'])
+    return briefs.update(userId, organizationId, briefId, {
+      expectedVersion: body.expectedVersion as number,
+      title: body.title as string,
+      status: body.status as never,
+      hook: body.hook as string,
+      callToAction: body.callToAction as string | null,
+      dimensions: body.dimensions as BriefDimensions,
+    })
+  })
+
+  app.get('/organizations/:organizationId/briefs/:briefId/versions', { schema: schemaFor('listBriefVersions') }, async (request) => {
+    const userId = await actor(request)
+    const organizationId = routeId(request, 'organizationId')
+    const briefId = routeId(request, 'briefId')
+    const query = queryParameters(request, ['limit'])
+    const rawLimit = query.get('limit')
+    const limit = rawLimit === null ? 100 : Number(rawLimit)
+    return { items: await briefs.listVersions(userId, organizationId, briefId, limit) }
   })
 
   app.post('/organizations/:organizationId/products/:productId/iteration-map/analyze', { schema: schemaFor('analyzeIterationMap') }, async (request) => {

@@ -18,14 +18,35 @@ const competitor = {
 }
 const ad = {
   id: 'ad-1', organizationId: 'org-1', productId: product.id, competitorId: competitor.id, providerName: 'manual-meta' as const,
-  platform: 'meta' as const, externalId: 'external-1', advertiserName: 'Orbit', body: 'Ship campaigns without the spreadsheet.',
-  callToAction: 'Learn more', startedAt: '2026-10-03T00:00:00.000Z', isActive: true, mediaUrls: [],
+  platform: 'meta' as const, externalId: 'external-1', pageId: 'page-1', advertiserName: 'Orbit', body: 'Ship campaigns without the spreadsheet.',
+  headline: 'Move faster', description: 'A focused campaign workflow.', callToAction: 'Learn more', displayFormat: 'video', adType: 'video' as const,
+  startedAt: '2026-10-03T00:00:00.000Z', endedAt: null, isActive: true, publisherPlatforms: ['facebook', 'instagram'],
+  impressionsLowerBound: 100, impressionsUpperBound: 200, spendLowerBound: null, spendUpperBound: null, currency: null, media: null, mediaUrls: [],
   sourceUrl: 'https://example.com/ad', firstSeenAt: '2026-10-03T00:00:00.000Z', lastSeenAt: '2026-10-04T00:00:00.000Z',
 }
 const brief = {
   id: 'brief-1', organizationId: 'org-1', productId: product.id, title: 'Founder speed', status: 'draft' as const,
   sourceAdId: ad.id, hook: ad.body, callToAction: ad.callToAction,
-  dimensions: { audience: 'Founders', market: 'US', angle: 'Speed', format: 'Static' }, createdAt: '2026-10-05T00:00:00.000Z',
+  dimensions: { audience: 'Founders', market: 'US', angle: 'Speed', format: 'Static' }, version: 1,
+  createdAt: '2026-10-05T00:00:00.000Z', updatedAt: '2026-10-05T00:00:00.000Z',
+}
+const scaling = {
+  label: 'Scale signals', generatedAt: '2026-10-27T09:30:00.000Z',
+  items: [{
+    competitorId: competitor.id, competitorName: competitor.name, activeAdCount: 12, newAdsLast7d: 5, newAdsPrev7d: 2,
+    launchVelocityDelta: 3, avgDaysActive: 18.5, longRunnerCount: 4, formatMix: { image: 5, video: 6, carousel: 2, text: 1 },
+    impressionWeight: 1.25, scaleScore: 88, newlyTracked: false,
+  }],
+}
+const creativeAnalysis = {
+  organizationId: 'org-1', productId: product.id, competitorAdId: ad.id, analysisVersion: 'v1',
+  modelProvider: 'openai', modelName: 'gpt-5-mini', promptVersion: 'creative-tags-v2', inputFingerprint: 'sha256:abc',
+  tags: {
+    hookCategory: 'Problem agitation', angle: 'Speed', emotion: 'Relief', persona: 'Founder', format: 'Demo',
+    offerFrame: 'Free trial', cta: 'Start now', onScreenText: 'Launch today', visualSummary: 'Product walkthrough',
+    funnelStage: 'Consideration', confidence: 0.92,
+  },
+  analyzedAt: '2026-10-27T09:45:00.000Z',
 }
 
 function api(): CreativeIntelligenceApi {
@@ -39,7 +60,11 @@ function api(): CreativeIntelligenceApi {
     listBriefs: vi.fn().mockResolvedValue({ items: [brief], nextCursor: null }),
     createManualBrief: vi.fn().mockResolvedValue(brief),
     createBriefFromAd: vi.fn().mockResolvedValue(brief),
+    updateBrief: vi.fn().mockResolvedValue({ ...brief, title: 'Founder velocity', status: 'triage', version: 2, updatedAt: '2026-10-06T00:00:00.000Z' }),
+    listBriefVersions: vi.fn().mockResolvedValue([{ ...brief, changedBy: 'admin-1', changedAt: brief.createdAt }]),
     analyzeIterationMap: vi.fn().mockResolvedValue({ totalCombinations: 1, covered: [{ dimensions: brief.dimensions, briefIds: [brief.id] }], missing: [] }),
+    getScalingAnalytics: vi.fn().mockResolvedValue(scaling),
+    analyzeCreative: vi.fn().mockResolvedValue(creativeAnalysis),
   }
 }
 
@@ -64,6 +89,67 @@ describe('Creative Intelligence workspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Competitors' }))
     expect(await screen.findByText('Orbit')).toBeTruthy()
+  })
+
+  it('edits a brief with its current version and shows immutable history', async () => {
+    const client = api()
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Brief Builder' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Founder speed' }))
+
+    expect(await screen.findByRole('heading', { name: 'Edit creative brief' })).toBeTruthy()
+    await waitFor(() => expect(client.listBriefVersions).toHaveBeenCalledWith(brief.id))
+    expect(await screen.findByText(/Version 1 by admin-1/)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Brief title'), { target: { value: 'Founder velocity' } })
+    fireEvent.change(screen.getByLabelText('Brief status'), { target: { value: 'triage' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(client.updateBrief).toHaveBeenCalledWith(brief.id, expect.objectContaining({
+      expectedVersion: 1, title: 'Founder velocity', status: 'triage',
+    })))
+    expect(await screen.findByText('Founder velocity')).toBeTruthy()
+    expect(screen.getByText('triage')).toBeTruthy()
+  })
+
+  it('loads the Analytics surface on demand and explains proxy metrics', async () => {
+    const client = api()
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+
+    expect(client.getScalingAnalytics).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Analytics' }))
+
+    expect(await screen.findByRole('heading', { name: 'Scale signals' })).toBeTruthy()
+    expect(client.getScalingAnalytics).toHaveBeenCalledWith(product.id)
+    expect(screen.getByText('88')).toBeTruthy()
+    expect(screen.getByText(/2 carousel/i)).toBeTruthy()
+    expect(screen.getByText(/directional proxies/i)).toBeTruthy()
+    expect(screen.getByText(/not verified spend or revenue/i)).toBeTruthy()
+  })
+
+  it('shows explicit Analytics loading and empty states', async () => {
+    const client = api()
+    const pending = deferred<typeof scaling>()
+    vi.mocked(client.getScalingAnalytics).mockReturnValue(pending.promise)
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Analytics' }))
+
+    expect((await screen.findByRole('status')).textContent).toContain('Loading scaling signals')
+    pending.resolve({ ...scaling, items: [] })
+    expect(await screen.findByRole('heading', { name: 'No scaling signals yet' })).toBeTruthy()
+  })
+
+  it('keeps Analytics failures inside the surface', async () => {
+    const client = api()
+    vi.mocked(client.getScalingAnalytics).mockRejectedValue(new Error('Scaling signals are unavailable'))
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Analytics' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Scaling signals are unavailable')
+    expect(screen.getByRole('heading', { name: 'Scaling signals' })).toBeTruthy()
   })
 
   it('shows the complete Meta page URL in the competitor list', async () => {
@@ -206,13 +292,66 @@ describe('Creative Intelligence workspace', () => {
 
   it('loads image creatives immediately without a consent button', async () => {
     const client = api()
-    vi.mocked(client.listAds).mockResolvedValue({ items: [{ ...ad, mediaUrls: ['https://media.example.com/creative.jpg'] }], nextCursor: null })
+    vi.mocked(client.listAds).mockResolvedValue({ items: [{ ...ad, adType: 'image', mediaUrls: ['https://scontent-gru1-2.xx.fbcdn.net/creative.jpg'] }], nextCursor: null })
     render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
     await screen.findByRole('heading', { name: 'Northstar' })
     fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
 
-    expect(await screen.findByRole('img', { name: 'Orbit ad creative' })).toBeTruthy()
+    const image = await screen.findByRole('img', { name: 'Orbit ad creative' })
+    expect(image.getAttribute('referrerpolicy')).toBe('no-referrer')
     expect(screen.queryByRole('button', { name: 'Load creative from Orbit' })).toBeNull()
+  })
+
+  it('does not auto-load media from an untrusted or private host', async () => {
+    const client = api()
+    vi.mocked(client.listAds).mockResolvedValue({ items: [{ ...ad, adType: 'image', mediaUrls: ['https://127.0.0.1/private.jpg'] }], nextCursor: null })
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
+    await screen.findByText(ad.body)
+    expect(screen.queryByRole('img', { name: 'Orbit ad creative' })).toBeNull()
+    expect(screen.getByText('External media is not on an approved host.')).toBeTruthy()
+  })
+
+  it('rejects approved-host suffix confusion', async () => {
+    const client = api()
+    const hosts = [
+      'fbcdn.net.evil.test', 'notfbcdn.net', 'facebook.com.evil.test',
+      'notfacebook.com', 'fbsbx.com.evil.test', 'notfbsbx.com',
+    ]
+    vi.mocked(client.listAds).mockResolvedValue({
+      items: hosts.map((host, index) => ({
+        ...ad,
+        id: `ad-${index}`,
+        advertiserName: `Orbit ${index}`,
+        adType: 'image' as const,
+        mediaUrls: [`https://${host}/creative.jpg`],
+      })),
+      nextCursor: null,
+    })
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
+    await screen.findByText('Orbit 0')
+
+    for (const index of hosts.keys()) {
+      expect(screen.queryByRole('img', { name: `Orbit ${index} ad creative` })).toBeNull()
+    }
+    expect(screen.getAllByText('External media is not on an approved host.')).toHaveLength(hosts.length)
+  })
+
+  it('renders every ordered carousel card from approved Meta media hosts', async () => {
+    const client = api()
+    vi.mocked(client.listAds).mockResolvedValue({ items: [{ ...ad, adType: 'carousel', mediaUrls: [], media: [
+      { kind: 'image', sourceUrl: 'https://scontent-gru1-2.xx.fbcdn.net/card-1.jpg', posterUrl: null, cardIndex: 0, order: 0 },
+      { kind: 'image', sourceUrl: 'https://scontent-gru1-2.xx.fbcdn.net/card-2.jpg', posterUrl: null, cardIndex: 1, order: 1 },
+    ] }], nextCursor: null })
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
+    const carousel = await screen.findByRole('region', { name: 'Orbit carousel' })
+    expect(within(carousel).getByRole('img', { name: 'Orbit ad creative card 1' })).toBeTruthy()
+    expect(within(carousel).getByRole('img', { name: 'Orbit ad creative card 2' })).toBeTruthy()
   })
 
   it('renders opaque Facebook video URLs as playable video creatives', async () => {
@@ -236,6 +375,7 @@ describe('Creative Intelligence workspace', () => {
     expect(video).not.toBeNull()
     expect(screen.queryByRole('button', { name: 'Load creative from Orbit' })).toBeNull()
     expect(video?.controls).toBe(true)
+    expect(video?.getAttribute('referrerpolicy')).toBe('no-referrer')
     expect(getComputedStyle(video!).objectFit).toBe('contain')
     expect(video?.getAttribute('poster')).toBe('https://scontent-gru1-2.xx.fbcdn.net/v/t39.35426-6/preview-token')
     expect(video?.querySelector('source')?.getAttribute('src')).toBe('https://video-gru1-1.xx.fbcdn.net/o1/v/t2/f2/m366/opaque-video-token')
@@ -257,8 +397,29 @@ describe('Creative Intelligence workspace', () => {
 
     const dialog = screen.getByRole('dialog', { name: 'Orbit creative' })
     expect(within(dialog).getByText(ad.body)).toBeTruthy()
+    expect(within(dialog).getByText('Move faster')).toBeTruthy()
+    expect(within(dialog).getByText('100–200')).toBeTruthy()
+    expect(within(dialog).getByText('facebook, instagram')).toBeTruthy()
+    expect(within(dialog).getByText('Not available')).toBeTruthy()
     expect(within(dialog).getByText('Learn more')).toBeTruthy()
     expect(within(dialog).getByRole('link', { name: 'Open original ad' }).getAttribute('href')).toBe(ad.sourceUrl)
+  })
+
+  it('analyzes a creative from its detail dialog and shows versioned model tags', async () => {
+    const client = api()
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'View creative details for Orbit' }))
+    const dialog = screen.getByRole('dialog', { name: 'Orbit creative' })
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Analyze creative' }))
+
+    await waitFor(() => expect(client.analyzeCreative).toHaveBeenCalledWith(product.id, ad.id))
+    expect(await within(dialog).findByText('Problem agitation')).toBeTruthy()
+    expect(within(dialog).getByText('openai · gpt-5-mini')).toBeTruthy()
+    expect(within(dialog).getByText('v1 · prompt creative-tags-v2')).toBeTruthy()
+    expect(within(dialog).getByText('92% confidence')).toBeTruthy()
   })
 
   it('keeps focus inside the creative dialog across parent rerenders', async () => {
@@ -302,8 +463,8 @@ describe('Creative Intelligence workspace', () => {
     const client = api()
     vi.mocked(client.listAds).mockResolvedValue({
       items: [
-        { ...ad, id: 'video-ad', body: 'Vertical product demo', mediaUrls: ['https://cdn.example.test/demo.mp4'] },
-        { ...ad, id: 'text-ad', body: 'Founder testimonial', mediaUrls: [] },
+        { ...ad, id: 'video-ad', body: 'Vertical product demo', adType: 'video', mediaUrls: ['https://cdn.example.test/demo.mp4'] },
+        { ...ad, id: 'text-ad', body: 'Founder testimonial', adType: 'text', mediaUrls: [] },
       ],
       nextCursor: null,
     })

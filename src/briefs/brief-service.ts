@@ -92,7 +92,9 @@ export function buildBriefFromAd(
       ? null
       : validateCanonicalText(ad.callToAction, 'Brief call to action', { maxLength: 100 }),
     dimensions: input.dimensions,
+    version: 1,
     createdAt: createdAt.toISOString(),
+    updatedAt: createdAt.toISOString(),
   }
 }
 
@@ -112,7 +114,9 @@ export function buildManualBrief(
     hook: input.hook,
     callToAction: input.callToAction || null,
     dimensions: input.dimensions,
+    version: 1,
     createdAt: createdAt.toISOString(),
+    updatedAt: createdAt.toISOString(),
   }
 }
 

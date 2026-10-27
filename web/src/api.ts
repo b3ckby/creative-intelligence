@@ -1,9 +1,12 @@
 import type {
   BriefDimensions,
+  BriefUpdateDraft,
   Competitor,
   CompetitorAd,
   CompetitorDraft,
+  CreativeAnalysis,
   CreativeBrief,
+  CreativeBriefVersion,
   IterationAxes,
   IterationCell,
   IterationMap,
@@ -12,6 +15,7 @@ import type {
   Platform,
   Product,
   ProductDraft,
+  ScalingAnalytics,
 } from './types.ts'
 
 export interface ApiConnection {
@@ -44,7 +48,11 @@ export interface CreativeIntelligenceApi {
   listBriefs(productId: string): Promise<Page<CreativeBrief>>
   createManualBrief(productId: string, draft: ManualBriefDraft): Promise<CreativeBrief>
   createBriefFromAd(productId: string, input: { adId: string; title: string; dimensions: BriefDimensions }): Promise<CreativeBrief>
+  updateBrief(briefId: string, input: BriefUpdateDraft): Promise<CreativeBrief>
+  listBriefVersions(briefId: string): Promise<CreativeBriefVersion[]>
   analyzeIterationMap(productId: string, axes: IterationAxes): Promise<IterationMap>
+  getScalingAnalytics(productId: string): Promise<ScalingAnalytics>
+  analyzeCreative(productId: string, adId: string): Promise<CreativeAnalysis>
 }
 
 const PAGE_LIMIT = 100
@@ -56,7 +64,7 @@ export function createApiClient(connection: ApiConnection): CreativeIntelligence
   const organizationId = required(connection.organizationId, 'Organization ID')
   const organizationPath = `/organizations/${encodeURIComponent(organizationId)}`
 
-  const request = async <T>(method: 'GET' | 'POST', path: string, parse: (value: unknown) => T, body?: unknown): Promise<T> => {
+  const request = async <T>(method: 'GET' | 'POST' | 'PATCH', path: string, parse: (value: unknown) => T, body?: unknown): Promise<T> => {
     let response: Response
     try {
       response = await fetch(`${baseUrl}${path}`, {
@@ -123,7 +131,11 @@ export function createApiClient(connection: ApiConnection): CreativeIntelligence
     listBriefs: (productId) => requestAll(`${organizationPath}/products/${segment(productId)}/briefs?limit=${PAGE_LIMIT}`, parseBrief),
     createManualBrief: (productId, draft) => request('POST', `${organizationPath}/products/${segment(productId)}/briefs`, parseBrief, draft),
     createBriefFromAd: (productId, input) => request('POST', `${organizationPath}/products/${segment(productId)}/briefs/from-ad`, parseBrief, input),
+    updateBrief: (briefId, input) => request('PATCH', `${organizationPath}/briefs/${segment(briefId)}`, parseBrief, input),
+    listBriefVersions: (briefId) => request('GET', `${organizationPath}/briefs/${segment(briefId)}/versions?limit=${PAGE_LIMIT}`, parseBriefVersions),
     analyzeIterationMap: (productId, axes) => request('POST', `${organizationPath}/products/${segment(productId)}/iteration-map/analyze`, parseIterationMap, { axes }),
+    getScalingAnalytics: (productId) => request('GET', `${organizationPath}/products/${segment(productId)}/analytics/scaling`, parseScalingAnalytics),
+    analyzeCreative: (productId, adId) => request('POST', `${organizationPath}/products/${segment(productId)}/ads/${segment(adId)}/creative-analysis`, parseCreativeAnalysis),
   }
 }
 
@@ -202,17 +214,25 @@ function parseCompetitor(value: unknown): Competitor {
 
 function parseAd(value: unknown): CompetitorAd {
   const record = exactObject(value, [
-    'id', 'organizationId', 'productId', 'competitorId', 'providerName', 'platform', 'externalId', 'advertiserName', 'body',
-    'callToAction', 'startedAt', 'isActive', 'mediaUrls', 'sourceUrl', 'firstSeenAt', 'lastSeenAt',
+    'id', 'organizationId', 'productId', 'competitorId', 'providerName', 'platform', 'externalId', 'pageId', 'advertiserName', 'body',
+    'headline', 'description', 'callToAction', 'displayFormat', 'adType', 'startedAt', 'endedAt', 'isActive', 'publisherPlatforms',
+    'impressionsLowerBound', 'impressionsUpperBound', 'spendLowerBound', 'spendUpperBound', 'currency', 'media',
+    'mediaUrls', 'sourceUrl', 'firstSeenAt', 'lastSeenAt',
   ])
   if (record.platform !== 'meta' || typeof record.isActive !== 'boolean') throw invalidResponse()
   const providerName = text(record.providerName, 64)
   if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(providerName)) throw invalidResponse()
   return {
     id: identifier(record.id), organizationId: identifier(record.organizationId), productId: identifier(record.productId), competitorId: identifier(record.competitorId),
-    providerName, platform: 'meta', externalId: identifier(record.externalId), advertiserName: text(record.advertiserName, 500),
-    body: text(record.body, 20_000, true), callToAction: nullableText(record.callToAction, 100), startedAt: timestamp(record.startedAt),
-    isActive: record.isActive, mediaUrls: urlArray(record.mediaUrls, 50), sourceUrl: httpsUrl(record.sourceUrl),
+    providerName, platform: 'meta', externalId: identifier(record.externalId), pageId: nullableText(record.pageId, 256), advertiserName: text(record.advertiserName, 500),
+    body: text(record.body, 20_000, true), headline: nullableText(record.headline, 500), description: nullableText(record.description, 2_000),
+    callToAction: nullableText(record.callToAction, 100), displayFormat: nullableText(record.displayFormat, 100), adType: nullableAdType(record.adType),
+    startedAt: timestamp(record.startedAt), endedAt: nullableTimestamp(record.endedAt), isActive: record.isActive,
+    publisherPlatforms: record.publisherPlatforms === null ? null : textArray(record.publisherPlatforms, 20, 100),
+    impressionsLowerBound: nullableNonNegativeNumber(record.impressionsLowerBound), impressionsUpperBound: nullableNonNegativeNumber(record.impressionsUpperBound),
+    spendLowerBound: nullableNonNegativeNumber(record.spendLowerBound), spendUpperBound: nullableNonNegativeNumber(record.spendUpperBound),
+    currency: nullableCurrency(record.currency), media: parseNullableMedia(record.media),
+    mediaUrls: urlArray(record.mediaUrls, 50), sourceUrl: httpsUrl(record.sourceUrl),
     firstSeenAt: timestamp(record.firstSeenAt), lastSeenAt: timestamp(record.lastSeenAt),
   }
 }
@@ -224,15 +244,27 @@ function parseImportResult(value: unknown): { inserted: number; duplicates: numb
 }
 
 function parseBrief(value: unknown): CreativeBrief {
-  const record = exactObject(value, ['id', 'organizationId', 'productId', 'title', 'status', 'sourceAdId', 'hook', 'callToAction', 'dimensions', 'createdAt'])
+  const record = exactObject(value, ['id', 'organizationId', 'productId', 'title', 'status', 'sourceAdId', 'hook', 'callToAction', 'dimensions', 'version', 'createdAt', 'updatedAt'])
   const statuses = ['draft', 'triage', 'approved', 'production', 'review', 'completed', 'archived'] as const
   if (!statuses.includes(record.status as typeof statuses[number])) throw invalidResponse()
+  const version = integer(record.version)
+  if (version < 1) throw invalidResponse()
   return {
     id: identifier(record.id), organizationId: identifier(record.organizationId), productId: identifier(record.productId), title: text(record.title, 500),
     status: record.status as CreativeBrief['status'], sourceAdId: record.sourceAdId === null ? null : identifier(record.sourceAdId),
     hook: text(record.hook, 20_000, true), callToAction: nullableText(record.callToAction, 100), dimensions: parseDimensions(record.dimensions),
-    createdAt: timestamp(record.createdAt),
+    version, createdAt: timestamp(record.createdAt), updatedAt: timestamp(record.updatedAt),
   }
+}
+
+function parseBriefVersions(value: unknown): CreativeBriefVersion[] {
+  const record = exactObject(value, ['items'])
+  if (!Array.isArray(record.items) || record.items.length > 100) throw invalidResponse()
+  return record.items.map((item) => {
+    const version = exactObject(item, ['id', 'organizationId', 'productId', 'title', 'status', 'sourceAdId', 'hook', 'callToAction', 'dimensions', 'version', 'createdAt', 'updatedAt', 'changedBy', 'changedAt'])
+    const brief = parseBrief(Object.fromEntries(Object.entries(version).filter(([key]) => key !== 'changedBy' && key !== 'changedAt')))
+    return { ...brief, changedBy: identifier(version.changedBy), changedAt: timestamp(version.changedAt) }
+  })
 }
 
 function parseDimensions(value: unknown): BriefDimensions {
@@ -253,12 +285,111 @@ function parseIterationMap(value: unknown): IterationMap {
   return { totalCombinations: record.totalCombinations as number, covered: record.covered.map(parseIterationCell), missing: record.missing.map(parseIterationCell) }
 }
 
+function parseScalingAnalytics(value: unknown): ScalingAnalytics {
+  const record = exactObject(value, ['label', 'generatedAt', 'items'])
+  if (!Array.isArray(record.items) || record.items.length > 10_000) throw invalidResponse()
+  return { label: text(record.label, 200), generatedAt: timestamp(record.generatedAt), items: record.items.map(parseScalingAnalyticsItem) }
+}
+
+function parseScalingAnalyticsItem(value: unknown): ScalingAnalytics['items'][number] {
+  const requiredKeys = ['competitorId', 'competitorName', 'activeAdCount', 'newAdsLast7d', 'newAdsPrev7d', 'launchVelocityDelta', 'avgDaysActive', 'longRunnerCount', 'formatMix', 'scaleScore', 'newlyTracked']
+  const source = value as Record<string, unknown>
+  const keys = typeof value === 'object' && value !== null && !Array.isArray(value) && Object.hasOwn(source, 'impressionWeight')
+    ? [...requiredKeys, 'impressionWeight'] : requiredKeys
+  const record = exactObject(value, keys)
+  const mix = exactObject(record.formatMix, ['image', 'video', 'carousel', 'text'])
+  if (typeof record.newlyTracked !== 'boolean') throw invalidResponse()
+  const result: ScalingAnalytics['items'][number] = {
+    competitorId: identifier(record.competitorId), competitorName: text(record.competitorName, 300),
+    activeAdCount: nonNegativeInteger(record.activeAdCount), newAdsLast7d: nonNegativeInteger(record.newAdsLast7d),
+    newAdsPrev7d: nonNegativeInteger(record.newAdsPrev7d), launchVelocityDelta: integer(record.launchVelocityDelta),
+    avgDaysActive: nonNegativeNumber(record.avgDaysActive), longRunnerCount: nonNegativeInteger(record.longRunnerCount),
+    formatMix: { image: nonNegativeInteger(mix.image), video: nonNegativeInteger(mix.video), carousel: nonNegativeInteger(mix.carousel), text: nonNegativeInteger(mix.text) },
+    scaleScore: boundedInteger(record.scaleScore, 0, 100), newlyTracked: record.newlyTracked,
+  }
+  if (Object.hasOwn(record, 'impressionWeight')) result.impressionWeight = nonNegativeNumber(record.impressionWeight)
+  return result
+}
+
+function parseCreativeAnalysis(value: unknown): CreativeAnalysis {
+  const record = exactObject(value, ['organizationId', 'productId', 'competitorAdId', 'analysisVersion', 'modelProvider', 'modelName', 'promptVersion', 'inputFingerprint', 'tags', 'analyzedAt'])
+  if (typeof record.inputFingerprint !== 'string' || !/^[a-f0-9]{64}$/u.test(record.inputFingerprint)) throw invalidResponse()
+  return {
+    organizationId: identifier(record.organizationId), productId: identifier(record.productId), competitorAdId: identifier(record.competitorAdId),
+    analysisVersion: text(record.analysisVersion, 128), modelProvider: text(record.modelProvider, 64), modelName: text(record.modelName, 200),
+    promptVersion: text(record.promptVersion, 128), inputFingerprint: record.inputFingerprint, tags: parseCreativeAnalysisTags(record.tags),
+    analyzedAt: timestamp(record.analyzedAt),
+  }
+}
+
+function parseCreativeAnalysisTags(value: unknown): CreativeAnalysis['tags'] {
+  const requiredKeys = ['hookCategory', 'angle', 'emotion', 'persona', 'format', 'offerFrame', 'cta', 'visualSummary', 'funnelStage', 'confidence']
+  const optionalKeys = ['onScreenText']
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw invalidResponse()
+  const source = value as Record<string, unknown>
+  const record = exactObject(value, [...requiredKeys, ...optionalKeys.filter((key) => Object.hasOwn(source, key))])
+  const result: CreativeAnalysis['tags'] = {
+    hookCategory: enumText(record.hookCategory, ['pain_point', 'results', 'pattern_interrupt', 'pov_hook', 'listicle_hook', 'curiosity', 'data', 'social_proof'] as const),
+    angle: enumText(record.angle, ['emotional', 'rational', 'identity', 'urgency', 'authority'] as const), emotion: text(record.emotion, 40),
+    persona: text(record.persona, 120), format: enumText(record.format, ['ugc', 'asmr', 'podcast', 'pov', 'review', 'teaser', 'stream', 'tutorial', 'documentary', 'news_story', 'meme', 'action', 'drama', 'cartoon'] as const),
+    offerFrame: enumText(record.offerFrame, ['discount', 'demo', 'free_tool', 'bundle', 'guarantee', 'social_proof', 'none'] as const), cta: text(record.cta, 120),
+    visualSummary: text(record.visualSummary, 600), funnelStage: funnelStage(record.funnelStage), confidence: confidence(record.confidence),
+  }
+  if (Object.hasOwn(record, 'onScreenText')) result.onScreenText = text(record.onScreenText, 600)
+  return result
+}
+
+function funnelStage(value: unknown): 'awareness' | 'consideration' | 'conversion' | 'retention' {
+  if (value !== 'awareness' && value !== 'consideration' && value !== 'conversion' && value !== 'retention') throw invalidResponse()
+  return value
+}
+function confidence(value: unknown): number {
+  const parsed = nonNegativeNumber(value)
+  if (parsed > 1) throw invalidResponse()
+  return parsed
+}
+
+
 function exactObject(value: unknown, keys: readonly string[]): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw invalidResponse()
   const record = value as Record<string, unknown>
   const actual = Object.keys(record)
   if (actual.length !== keys.length || actual.some((key) => !keys.includes(key))) throw invalidResponse()
   return record
+}
+
+function finiteNumber(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) throw invalidResponse()
+  return value
+}
+
+function integer(value: unknown): number {
+  const result = finiteNumber(value)
+  if (!Number.isSafeInteger(result)) throw invalidResponse()
+  return result
+}
+
+function boundedInteger(value: unknown, minimum: number, maximum: number): number {
+  const result = integer(value)
+  if (result < minimum || result > maximum) throw invalidResponse()
+  return result
+}
+
+function enumText<const T extends readonly string[]>(value: unknown, allowed: T): T[number] {
+  if (typeof value !== 'string' || !allowed.includes(value)) throw invalidResponse()
+  return value as T[number]
+}
+
+function nonNegativeNumber(value: unknown): number {
+  const result = finiteNumber(value)
+  if (result < 0) throw invalidResponse()
+  return result
+}
+
+function nonNegativeInteger(value: unknown): number {
+  const result = nonNegativeNumber(value)
+  if (!Number.isSafeInteger(result)) throw invalidResponse()
+  return result
 }
 
 function identifier(value: unknown): string {
@@ -274,6 +405,29 @@ function text(value: unknown, maxLength: number, allowEmpty = false): string {
 }
 
 function nullableText(value: unknown, maxLength: number): string | null { return value === null ? null : text(value, maxLength) }
+function nullableNonNegativeNumber(value: unknown): number | null { return value === null ? null : nonNegativeNumber(value) }
+function nullableCurrency(value: unknown): string | null {
+  if (value === null) return null
+  if (typeof value !== 'string' || !/^[A-Z]{3}$/u.test(value)) throw invalidResponse()
+  return value
+}
+function nullableAdType(value: unknown): 'image' | 'video' | 'carousel' | 'text' | null {
+  if (value === null) return null
+  if (value !== 'image' && value !== 'video' && value !== 'carousel' && value !== 'text') throw invalidResponse()
+  return value
+}
+function parseNullableMedia(value: unknown): NonNullable<CompetitorAd['media']> | null {
+  if (value === null) return null
+  if (!Array.isArray(value) || value.length > 50) throw invalidResponse()
+  return value.map((item, index) => {
+    const record = exactObject(item, ['kind', 'sourceUrl', 'posterUrl', 'cardIndex', 'order'])
+    if (record.kind !== 'image' && record.kind !== 'video') throw invalidResponse()
+    const cardIndex = record.cardIndex === null ? null : boundedInteger(record.cardIndex, 0, 49)
+    const order = boundedInteger(record.order, 0, 49)
+    if (order !== index) throw invalidResponse()
+    return { kind: record.kind, sourceUrl: httpsUrl(record.sourceUrl), posterUrl: record.posterUrl === null ? null : httpsUrl(record.posterUrl), cardIndex, order }
+  })
+}
 
 function stringArray(value: unknown, maxItems: number): string[] {
   if (!Array.isArray(value) || value.length > maxItems || !value.every((item) => typeof item === 'string')) throw invalidResponse()

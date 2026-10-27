@@ -7,9 +7,12 @@ import { createOidcAuthenticator, type OidcAuthenticatorDependencies } from './a
 import { StagingPasswordLogin, type StagingLoginAttemptLimiter } from './auth/staging-password-login.ts'
 import type { RuntimeConfig } from './config/runtime-config.ts'
 import { buildApi } from './http/build-api.ts'
+import { GeminiCreativeTagger } from './creative-analysis/gemini-creative-tagger.ts'
 import { schemaFor } from './http/schemas.ts'
 import { checkDatabaseReadiness, createPostgresPool, verifyRuntimeDatabase, type RuntimeSqlPool } from './persistence/postgres-pool.ts'
 import { PostgresStagingLoginRateLimiter } from './persistence/postgres-staging-login-rate-limiter.ts'
+import { PostgresScaleAnalyticsService } from './persistence/postgres-scale-analytics-service.ts'
+import { PostgresCreativeAnalysisService } from './persistence/postgres-creative-analysis-service.ts'
 import { withVerifiedUserReadContext } from './persistence/verified-user-context.ts'
 
 export interface ProductionAppDependencies extends OidcAuthenticatorDependencies {
@@ -35,11 +38,13 @@ export async function createProductionApp(
       monotonicNow: dependencies.monotonicNow,
     }).filter(([, value]) => value !== undefined)) as OidcAuthenticatorDependencies
     const authenticate = createOidcAuthenticator(config.oidc, oidcDependencies)
+    const now = dependencies.now ?? (() => new Date())
+    const readSecretFile = dependencies.readSecretFile ?? (async (path: string) => await readFile(path, 'utf8'))
     let stagingLogin: StagingPasswordLogin | undefined
     let stagingOrganizationId: string | undefined
     if (config.stagingLogin) {
       stagingOrganizationId = config.stagingLogin.organizationId
-      const readSecretFile = dependencies.readSecretFile ?? (async (path: string) => await readFile(path, 'utf8'))
+
       const [passwordHash, privateKeyPem] = await Promise.all([
         readSecretFile(config.stagingLogin.passwordHashFile),
         readSecretFile(config.stagingLogin.privateKeyFile),
@@ -75,6 +80,19 @@ export async function createProductionApp(
         throw new Error('Staging login membership is invalid')
       }
     }
+    let creativeAnalysis: PostgresCreativeAnalysisService | undefined
+    if (config.creativeAnalysis) {
+      const apiKey = (await readSecretFile(config.creativeAnalysis.apiKeyFile)).trim()
+      const tagger = new GeminiCreativeTagger({
+        apiKey,
+        model: config.creativeAnalysis.model,
+        timeoutMs: config.creativeAnalysis.timeoutMs,
+        maxConcurrency: config.creativeAnalysis.maxConcurrency,
+      }, {
+        ...(dependencies.fetch ? { fetch: dependencies.fetch } : {}),
+      })
+      creativeAnalysis = new PostgresCreativeAnalysisService(pool, tagger, now, config.creativeAnalysis.dailyLimit)
+    }
     const app = buildApi({
       pool,
       authenticate,
@@ -82,7 +100,9 @@ export async function createProductionApp(
       ...(stagingLogin && stagingOrganizationId ? { stagingLogin, stagingOrganizationId } : {}),
       cursorSigningKey: config.cursorSigningKey,
       createId: dependencies.createId ?? randomUUID,
-      now: dependencies.now ?? (() => new Date()),
+      now,
+      scaleAnalytics: new PostgresScaleAnalyticsService(pool, now),
+      ...(creativeAnalysis ? { creativeAnalysis } : {}),
       apify: {
         ...config.apify,
         ...(dependencies.fetch ? { fetch: dependencies.fetch } : {}),

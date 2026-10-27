@@ -28,6 +28,13 @@ export interface RuntimeConfig {
     attemptWindowMs: number
     maxConcurrency: number
   }
+  creativeAnalysis?: {
+    apiKeyFile: string
+    model: string
+    timeoutMs: number
+    maxConcurrency: number
+    dailyLimit: number
+  }
   apify: {
     apiToken: string
     timeoutMs: number
@@ -77,6 +84,7 @@ export function parseRuntimeConfig(environment: Readonly<Record<string, string |
     const apifyApiToken = required(environment, 'APIFY_API_TOKEN', 4_096)
     if (apifyApiToken.length < 10) throw new Error('invalid Apify API token')
     const stagingLogin = parseStagingLogin(environment)
+    const creativeAnalysis = parseCreativeAnalysis(environment)
     if (stagingLogin) {
       const subjectMaximum = oidc.subjectMaxLength ?? 128
       if (!oidc.algorithms.includes('RS256') || stagingLogin.subject.length > subjectMaximum) throw new Error('staging signer does not match OIDC verifier')
@@ -95,6 +103,7 @@ export function parseRuntimeConfig(environment: Readonly<Record<string, string |
       cursorSigningKey,
       oidc,
       ...(stagingLogin ? { stagingLogin } : {}),
+      ...(creativeAnalysis ? { creativeAnalysis } : {}),
       apify: {
         apiToken: apifyApiToken,
         timeoutMs: integer(environment, 'APIFY_TIMEOUT_MS', 100, 120_000),
@@ -107,6 +116,25 @@ export function parseRuntimeConfig(environment: Readonly<Record<string, string |
     }
   } catch {
     throw new Error('Runtime configuration is invalid')
+  }
+}
+
+function parseCreativeAnalysis(environment: Readonly<Record<string, string | undefined>>): RuntimeConfig['creativeAnalysis'] {
+  const enabled = environment.CREATIVE_ANALYSIS_ENABLED
+  const settingNames = ['GEMINI_API_KEY_FILE', 'GEMINI_MODEL', 'GEMINI_TIMEOUT_MS', 'GEMINI_MAX_CONCURRENCY', 'CREATIVE_ANALYSIS_DAILY_LIMIT']
+  if (enabled === undefined) {
+    if (settingNames.some((name) => environment[name] !== undefined)) throw new Error('creative analysis settings require explicit enablement')
+    return undefined
+  }
+  if (enabled !== 'true') throw new Error('invalid creative analysis enablement')
+  const model = required(environment, 'GEMINI_MODEL', 100)
+  if (!/^[A-Za-z0-9._-]+$/u.test(model)) throw new Error('invalid Gemini model')
+  return {
+    apiKeyFile: absolutePath(environment, 'GEMINI_API_KEY_FILE'),
+    model,
+    timeoutMs: integer(environment, 'GEMINI_TIMEOUT_MS', 1_000, 120_000),
+    maxConcurrency: integer(environment, 'GEMINI_MAX_CONCURRENCY', 1, 16),
+    dailyLimit: integer(environment, 'CREATIVE_ANALYSIS_DAILY_LIMIT', 1, 10_000),
   }
 }
 

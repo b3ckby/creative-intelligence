@@ -3,16 +3,20 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, 
 import { ApiError, type AdFilters, type CreativeIntelligenceApi } from './api.ts'
 import type {
   BriefDimensions,
+  BriefStatus,
   Competitor,
   CompetitorAd,
+  CreativeAnalysis,
   CreativeBrief,
+  CreativeBriefVersion,
   IterationAxes,
   IterationMap,
   Platform,
   Product,
+  ScalingAnalytics,
 } from './types.ts'
 
-type Surface = 'overview' | 'competitors' | 'ads' | 'briefs' | 'map'
+type Surface = 'overview' | 'competitors' | 'ads' | 'briefs' | 'map' | 'analytics'
 
 interface WorkspaceProps {
   api: CreativeIntelligenceApi
@@ -26,6 +30,7 @@ const surfaces: Array<{ id: Surface; label: string; index: string }> = [
   { id: 'ads', label: 'Ad Library', index: '03' },
   { id: 'briefs', label: 'Brief Builder', index: '04' },
   { id: 'map', label: 'Iteration Map', index: '05' },
+  { id: 'analytics', label: 'Analytics', index: '06' },
 ]
 
 export function Workspace({ api, organizationLabel, onDisconnect }: WorkspaceProps) {
@@ -36,6 +41,9 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
   const [ads, setAds] = useState<CompetitorAd[]>([])
   const [briefs, setBriefs] = useState<CreativeBrief[]>([])
   const [iterationMap, setIterationMap] = useState<IterationMap | null>(null)
+  const [scalingAnalytics, setScalingAnalytics] = useState<ScalingAnalytics | null>(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(false)
+  const [analyticsError, setAnalyticsError] = useState('')
   const [pendingOperations, setPendingOperations] = useState(0)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -43,6 +51,7 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
   const [showCompetitorForm, setShowCompetitorForm] = useState(false)
   const [showBriefForm, setShowBriefForm] = useState(false)
   const [selectedAd, setSelectedAd] = useState<CompetitorAd | null>(null)
+  const [selectedBrief, setSelectedBrief] = useState<CreativeBrief | null>(null)
   const [adFilters, setAdFilters] = useState<AdFilters>({})
   const adFiltersRef = useRef<AdFilters>({})
   adFiltersRef.current = adFilters
@@ -60,7 +69,7 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
   const selectedProduct = products.find((product) => product.id === selectedProductId) ?? products[0]
   const selectedProductRef = useRef('')
   selectedProductRef.current = selectedProduct?.id ?? ''
-  const dialogOpen = showProductForm || showCompetitorForm || showBriefForm || selectedAd !== null
+  const dialogOpen = showProductForm || showCompetitorForm || showBriefForm || selectedAd !== null || selectedBrief !== null
 
   useEffect(() => {
     let active = true
@@ -91,6 +100,7 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
     setAds([])
     setBriefs([])
     setSelectedAd(null)
+    setSelectedBrief(null)
     setAdFilters(selectedProduct ? { productId: selectedProduct.id } : {})
     setIterationMap(null)
     if (!selectedProduct) return
@@ -114,6 +124,24 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
     })
     return () => { active = false }
   }, [api, selectedProduct?.id])
+
+  useEffect(() => {
+    setScalingAnalytics(null)
+    setAnalyticsError('')
+    if (surface !== 'analytics' || !selectedProduct) return
+    let active = true
+    const productId = selectedProduct.id
+    setAnalyticsLoading(true)
+    api.getScalingAnalytics(productId)
+      .then((result) => {
+        if (active && selectedProductRef.current === productId) setScalingAnalytics(result)
+      })
+      .catch((reason: unknown) => {
+        if (active && selectedProductRef.current === productId) setAnalyticsError(message(reason))
+      })
+      .finally(() => { if (active) setAnalyticsLoading(false) })
+    return () => { active = false }
+  }, [api, selectedProduct?.id, surface])
 
   const reloadAds = async (filters: AdFilters) => {
     const productId = filters.productId
@@ -167,6 +195,15 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
     setBriefs((current) => [created, ...current.filter((brief) => brief.id !== created.id)])
     setShowBriefForm(false)
     setNotice('Draft brief saved.')
+  }
+
+  const updateBrief = async (briefId: string, input: {
+    expectedVersion: number; title: string; status: BriefStatus; hook: string; callToAction: string | null; dimensions: BriefDimensions
+  }) => {
+    const updated = await api.updateBrief(briefId, input)
+    setBriefs((current) => current.map((item) => item.id === updated.id ? updated : item))
+    setSelectedBrief(null)
+    setNotice(`Brief updated to version ${updated.version}.`)
   }
 
   const syncCompetitorAds = async (competitor: Competitor) => {
@@ -241,6 +278,11 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
     } finally {
       setPendingOperations((count) => Math.max(0, count - 1))
     }
+  }
+
+  const analyzeCreative = async (ad: CompetitorAd): Promise<CreativeAnalysis> => {
+    if (!selectedProduct || ad.productId !== selectedProduct.id) throw new Error('Select the matching product before analyzing this creative')
+    return api.analyzeCreative(selectedProduct.id, ad.id)
   }
 
   return (
@@ -325,10 +367,13 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
               />
             )}
             {surface === 'briefs' && (
-              <BriefsSurface briefs={briefs} onAdd={() => setShowBriefForm(true)} />
+              <BriefsSurface briefs={briefs} onAdd={() => setShowBriefForm(true)} onEdit={setSelectedBrief} />
             )}
             {surface === 'map' && (
               <IterationMapSurface product={selectedProduct} briefs={briefs} result={iterationMap} onAnalyze={analyze} />
+            )}
+            {surface === 'analytics' && (
+              <AnalyticsSurface result={scalingAnalytics} loading={analyticsLoading} error={analyticsError} />
             )}
           </>
         ) : null}
@@ -338,7 +383,8 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
       {showProductForm && <ProductDialog onClose={() => setShowProductForm(false)} onSubmit={createProduct} />}
       {showCompetitorForm && <CompetitorDialog onClose={() => setShowCompetitorForm(false)} onSubmit={createCompetitor} />}
       {showBriefForm && <BriefDialog product={selectedProduct} onClose={() => setShowBriefForm(false)} onSubmit={createBrief} />}
-      {selectedAd && <CreativeDetailDialog ad={selectedAd} pending={pendingBriefAdIds.has(selectedAd.id)} onClose={() => setSelectedAd(null)} onCreateBrief={createBriefFromAd} />}
+      {selectedBrief && <EditBriefDialog brief={selectedBrief} loadVersions={api.listBriefVersions} onClose={() => setSelectedBrief(null)} onSubmit={updateBrief} />}
+      {selectedAd && <CreativeDetailDialog ad={selectedAd} pending={pendingBriefAdIds.has(selectedAd.id)} onClose={() => setSelectedAd(null)} onCreateBrief={createBriefFromAd} onAnalyze={analyzeCreative} />}
     </>
   )
 }
@@ -429,7 +475,7 @@ function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, o
   onInspect: (ad: CompetitorAd) => void
 }) {
   const [query, setQuery] = useState('')
-  const [mediaFormat, setMediaFormat] = useState<'all' | 'video' | 'image' | 'text'>('all')
+  const [mediaFormat, setMediaFormat] = useState<'all' | 'video' | 'image' | 'carousel' | 'text'>('all')
   const [startedAfter, setStartedAfter] = useState('')
   const visibleAds = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase()
@@ -466,7 +512,7 @@ function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, o
           <option value="">Any status</option><option value="true">Active</option><option value="false">Inactive</option>
         </select></label>
         <label>Media format<select aria-label="Media format" value={mediaFormat} onChange={(event) => setMediaFormat(event.target.value as typeof mediaFormat)}>
-          <option value="all">Any format</option><option value="video">Video</option><option value="image">Image</option><option value="text">Text only</option>
+          <option value="all">Any format</option><option value="video">Video</option><option value="image">Image</option><option value="carousel">Carousel</option><option value="text">Text only</option>
         </select></label>
         <label>Started on or after<input aria-label="Started on or after" type="date" value={startedAfter} onChange={(event) => setStartedAfter(event.target.value)} /></label>
         <span className="result-count" aria-live="polite">{resultLabel}</span>
@@ -489,20 +535,55 @@ function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, o
   )
 }
 
-function creativeMediaFormat(ad: CompetitorAd): 'video' | 'image' | 'text' {
+function creativeMediaFormat(ad: CompetitorAd): 'video' | 'image' | 'carousel' | 'text' {
+  if (ad.adType) return ad.adType
   if (ad.mediaUrls.some(isVideoUrl)) return 'video'
   return ad.mediaUrls.length > 0 ? 'image' : 'text'
 }
 
+const noReferrerMediaProps = { referrerPolicy: 'no-referrer' } as Record<string, string>
+
 function AdCreative({ ad }: { ad: CompetitorAd }) {
-  const videoUrl = ad.mediaUrls.find(isVideoUrl)
-  const mediaUrl = videoUrl ?? ad.mediaUrls[0]
-  if (!mediaUrl) return <span>{initials(ad.advertiserName)}</span>
+  const structured = [...(ad.media ?? [])]
+    .filter((media) => isApprovedMediaUrl(media.sourceUrl))
+    .sort((left, right) => left.order - right.order)
+  if (ad.adType === 'carousel' && structured.length > 1) {
+    return <div className="creative-carousel" role="region" aria-label={`${ad.advertiserName} carousel`}>
+      {structured.map((media, index) => <div className="creative-carousel-card" key={`${media.order}:${media.cardIndex ?? 'root'}:${media.sourceUrl}`}>
+        {media.kind === 'video'
+          ? <video controls playsInline preload="metadata" {...noReferrerMediaProps} poster={media.posterUrl && isApprovedMediaUrl(media.posterUrl) ? media.posterUrl : undefined} aria-label={`${ad.advertiserName} ad creative card ${index + 1}`}><source src={media.sourceUrl} /></video>
+          : <img src={media.sourceUrl} alt={`${ad.advertiserName} ad creative card ${index + 1}`} loading="lazy" referrerPolicy="no-referrer" />}
+      </div>)}
+    </div>
+  }
+  const trustedLegacy = ad.mediaUrls.filter(isApprovedMediaUrl)
+  const structuredVideo = structured.find((media) => media.kind === 'video')
+  const structuredImage = structured.find((media) => media.kind === 'image')
+  const videoUrl = structuredVideo?.sourceUrl ?? trustedLegacy.find(isVideoUrl)
+  const mediaUrl = videoUrl ?? structuredImage?.sourceUrl ?? trustedLegacy[0]
+  if (!mediaUrl) {
+    const hadExternalMedia = (ad.media?.length ?? 0) > 0 || ad.mediaUrls.length > 0
+    return <span>{hadExternalMedia ? 'External media is not on an approved host.' : initials(ad.advertiserName)}</span>
+  }
   if (videoUrl) {
-    const poster = ad.mediaUrls.find((url) => !isVideoUrl(url))
-    return <video controls playsInline preload="metadata" poster={poster} aria-label={`${ad.advertiserName} ad creative`}><source src={videoUrl} /></video>
+    const structuredPoster = structuredVideo?.posterUrl && isApprovedMediaUrl(structuredVideo.posterUrl) ? structuredVideo.posterUrl : undefined
+    const poster = structuredPoster ?? structuredImage?.sourceUrl ?? trustedLegacy.find((url) => !isVideoUrl(url))
+    return <video controls playsInline preload="metadata" {...noReferrerMediaProps} poster={poster} aria-label={`${ad.advertiserName} ad creative`}><source src={videoUrl} /></video>
   }
   return <img src={mediaUrl} alt={`${ad.advertiserName} ad creative`} loading="lazy" referrerPolicy="no-referrer" />
+}
+
+function isApprovedMediaUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'https:' || url.username || url.password) return false
+    const hostname = url.hostname.toLowerCase()
+    return hostname === 'fbcdn.net' || hostname.endsWith('.fbcdn.net')
+      || hostname === 'facebook.com' || hostname.endsWith('.facebook.com')
+      || hostname === 'fbsbx.com' || hostname.endsWith('.fbsbx.com')
+  } catch {
+    return false
+  }
 }
 
 function isVideoUrl(value: string): boolean {
@@ -514,26 +595,58 @@ function isVideoUrl(value: string): boolean {
   }
 }
 
-function CreativeDetailDialog({ ad, pending, onClose, onCreateBrief }: {
+function CreativeDetailDialog({ ad, pending, onClose, onCreateBrief, onAnalyze }: {
   ad: CompetitorAd
   pending: boolean
   onClose: () => void
   onCreateBrief: (ad: CompetitorAd) => Promise<void>
+  onAnalyze: (ad: CompetitorAd) => Promise<CreativeAnalysis>
 }) {
+  const [analysis, setAnalysis] = useState<CreativeAnalysis | null>(null)
+  const [analysisError, setAnalysisError] = useState('')
+  const [analysisPending, setAnalysisPending] = useState(false)
+  const analysisInFlight = useRef(false)
+  const runAnalysis = async () => {
+    if (analysisInFlight.current) return
+    analysisInFlight.current = true
+    setAnalysisPending(true)
+    setAnalysisError('')
+    try { setAnalysis(await onAnalyze(ad)) }
+    catch (reason) { setAnalysisError(message(reason)) }
+    finally { analysisInFlight.current = false; setAnalysisPending(false) }
+  }
   return <Dialog title={`${ad.advertiserName} creative`} onClose={onClose} wide>
     <div className="creative-detail">
       <div className="creative-detail-media"><AdCreative ad={ad} /></div>
       <div className="creative-detail-copy">
         <span className={ad.isActive ? 'status-pill' : 'status-pill muted'}>{ad.isActive ? 'Active' : 'Inactive'}</span>
+        {ad.headline && <h3>{ad.headline}</h3>}
         <p>{ad.body || 'Visual creative without body copy.'}</p>
+        {ad.description && <p className="muted-copy">{ad.description}</p>}
         <dl>
           <div><dt>CTA</dt><dd>{ad.callToAction ?? 'Not provided'}</dd></div>
           <div><dt>Started</dt><dd>{formatDate(ad.startedAt)}</dd></div>
+          <div><dt>Ended</dt><dd>{ad.endedAt ? formatDate(ad.endedAt) : ad.isActive ? 'Still active' : 'Not provided'}</dd></div>
           <div><dt>First seen</dt><dd>{formatDate(ad.firstSeenAt)}</dd></div>
           <div><dt>Last seen</dt><dd>{formatDate(ad.lastSeenAt)}</dd></div>
           <div><dt>Format</dt><dd>{creativeMediaFormat(ad)}</dd></div>
+          <div><dt>Display format</dt><dd>{ad.displayFormat ?? 'Not provided'}</dd></div>
+          <div><dt>Platforms</dt><dd>{ad.publisherPlatforms?.join(', ') || 'Not provided'}</dd></div>
+          <div><dt>Impressions</dt><dd>{formatRange(ad.impressionsLowerBound, ad.impressionsUpperBound)}</dd></div>
+          <div><dt>Spend</dt><dd>{formatRange(ad.spendLowerBound, ad.spendUpperBound, ad.currency)}</dd></div>
+          <div><dt>Meta page ID</dt><dd>{ad.pageId ?? 'Not provided'}</dd></div>
           <div><dt>Provider</dt><dd>{ad.providerName}</dd></div>
         </dl>
+        <section className="creative-analysis" aria-label="Creative analysis">
+          <div className="analysis-heading"><div><span className="eyebrow">AI-assisted read</span><h3>Creative tags</h3></div><button className="secondary-button" disabled={analysisPending} onClick={() => void runAnalysis()}>{analysisPending ? 'Analyzing…' : analysis ? 'Analyze again' : 'Analyze creative'}</button></div>
+          {analysisError && <div className="form-error" role="alert">{analysisError}</div>}
+          {analysis && <>
+            <div className="analysis-meta"><span>{analysis.modelProvider} · {analysis.modelName}</span><span>{analysis.analysisVersion} · prompt {analysis.promptVersion}</span><span>{analysis.tags.confidence === undefined ? 'Confidence not supplied' : `${Math.round(analysis.tags.confidence * 100)}% confidence`}</span></div>
+            <dl className="analysis-tags">
+              {analysisTagEntries(analysis).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+            </dl>
+          </>}
+        </section>
         <div className="creative-detail-actions">
           <a href={ad.sourceUrl} target="_blank" rel="noreferrer">Open original ad</a>
           <button className="primary-button" disabled={pending} onClick={() => { onClose(); void onCreateBrief(ad) }}>{pending ? 'Creating…' : 'Create brief'}</button>
@@ -543,7 +656,26 @@ function CreativeDetailDialog({ ad, pending, onClose, onCreateBrief }: {
   </Dialog>
 }
 
-function BriefsSurface({ briefs, onAdd }: { briefs: CreativeBrief[]; onAdd: () => void }) {
+function formatRange(lower: number | null | undefined, upper: number | null | undefined, suffix?: string | null): string {
+  if (lower == null && upper == null) return 'Not available'
+  const value = lower != null && upper != null && lower !== upper
+    ? `${lower.toLocaleString()}–${upper.toLocaleString()}`
+    : (lower ?? upper)!.toLocaleString()
+  return suffix ? `${value} ${suffix}` : value
+}
+
+function analysisTagEntries(analysis: CreativeAnalysis): Array<[string, string]> {
+  const tags = analysis.tags
+  return [
+    ['Hook', tags.hookCategory], ['Angle', tags.angle], ['Emotion', tags.emotion], ['Persona', tags.persona],
+    ['Format', tags.format], ['Offer', tags.offerFrame], ['CTA', tags.cta],
+    ...(tags.funnelStage ? [['Funnel stage', tags.funnelStage] as [string, string]] : []),
+    ...(tags.onScreenText ? [['On-screen text', tags.onScreenText] as [string, string]] : []),
+    ...(tags.visualSummary ? [['Visual summary', tags.visualSummary] as [string, string]] : []),
+  ]
+}
+
+function BriefsSurface({ briefs, onAdd, onEdit }: { briefs: CreativeBrief[]; onAdd: () => void; onEdit: (brief: CreativeBrief) => void }) {
   return (
     <section className="surface">
       <SurfaceHeading eyebrow="From evidence to action" title="Brief Builder" action="New brief" onAction={onAdd} />
@@ -555,6 +687,7 @@ function BriefsSurface({ briefs, onAdd }: { briefs: CreativeBrief[]; onAdd: () =
             <div className="dimension-grid">
               {Object.entries(brief.dimensions).map(([key, value]) => <div key={key}><span>{key}</span><strong>{value}</strong></div>)}
             </div>
+            <button type="button" className="text-button" aria-label={`Edit ${brief.title}`} onClick={() => onEdit(brief)}>Edit · v{brief.version}</button>
           </article>
         ))}
         {briefs.length === 0 && <EmptyPanel title="The brief board is empty" copy="Start manually or turn an ad into a grounded creative response." action="New brief" onAction={onAdd} />}
@@ -601,6 +734,37 @@ function IterationMapSurface({ product, briefs, result, onAnalyze }: {
           )}
         </div>
       </div>
+    </section>
+  )
+}
+
+function AnalyticsSurface({ result, loading, error }: { result: ScalingAnalytics | null; loading: boolean; error: string }) {
+  return (
+    <section className="surface analytics-surface">
+      <SurfaceHeading eyebrow="Competitive momentum" title={result?.label ?? 'Scaling signals'} />
+      <aside className="proxy-note" aria-label="Metric methodology">
+        <strong>Directional proxies</strong>
+        <span>Scores infer creative scaling from observed ad activity. They are not verified spend or revenue.</span>
+      </aside>
+      {loading ? <div className="analytics-state" role="status">Loading scaling signals…</div>
+        : error ? <div className="analytics-state error" role="alert">{error}</div>
+          : !result || result.items.length === 0 ? <EmptyPanel title="No scaling signals yet" copy="Track competitor ads over time to establish a comparison window." />
+            : <>
+              <p className="analytics-generated">Generated {formatDateTime(result.generatedAt)}</p>
+              <div className="analytics-table-wrap">
+                <table className="analytics-table">
+                  <thead><tr><th>Competitor</th><th>Scale score</th><th>Active ads</th><th>New 7d</th><th>Velocity</th><th>Avg. active</th><th>Long runners</th><th>Format mix</th></tr></thead>
+                  <tbody>{result.items.map((item) => <tr key={item.competitorId}>
+                    <th scope="row"><span>{item.competitorName}</span>{item.newlyTracked && <small>Newly tracked</small>}</th>
+                    <td className="score-cell">{formatNumber(item.scaleScore)}</td>
+                    <td>{item.activeAdCount}</td><td>{item.newAdsLast7d}<small>prev. {item.newAdsPrev7d}</small></td>
+                    <td className={item.launchVelocityDelta >= 0 ? 'positive' : 'negative'}>{signedNumber(item.launchVelocityDelta)}</td>
+                    <td>{formatNumber(item.avgDaysActive)} days</td><td>{item.longRunnerCount}</td>
+                    <td><span className="format-mix">{item.formatMix.image} image · {item.formatMix.video} video · {item.formatMix.carousel} carousel · {item.formatMix.text} text</span>{item.impressionWeight !== undefined && <small>weight {formatNumber(item.impressionWeight)}</small>}</td>
+                  </tr>)}</tbody>
+                </table>
+              </div>
+            </>}
     </section>
   )
 }
@@ -665,6 +829,64 @@ function CompetitorDialog({ onClose, onSubmit }: {
     <label>Meta page URL<input name="url" type="url" placeholder="https://www.facebook.com/..." /></label>
     <FormActions onClose={onClose} busy={busy} submit="Add competitor" />
   </form></Dialog>
+}
+
+function EditBriefDialog({ brief, loadVersions, onClose, onSubmit }: {
+  brief: CreativeBrief
+  loadVersions: (briefId: string) => Promise<CreativeBriefVersion[]>
+  onClose: () => void
+  onSubmit: (briefId: string, input: { expectedVersion: number; title: string; status: BriefStatus; hook: string; callToAction: string | null; dimensions: BriefDimensions }) => Promise<void>
+}) {
+  const [versions, setVersions] = useState<CreativeBriefVersion[]>([])
+  const [historyError, setHistoryError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [submitError, setSubmitError] = useState('')
+  useEffect(() => {
+    let active = true
+    loadVersions(brief.id).then((items) => { if (active) setVersions(items) }).catch((reason) => { if (active) setHistoryError(message(reason)) })
+    return () => { active = false }
+  }, [brief.id, loadVersions])
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); setBusy(true); setSubmitError(''); const data = new FormData(event.currentTarget)
+    try {
+      await onSubmit(brief.id, {
+        expectedVersion: brief.version,
+        title: textValue(data, 'title'), status: textValue(data, 'status') as BriefStatus,
+        hook: textValue(data, 'hook'), callToAction: textValue(data, 'cta') || null,
+        dimensions: { audience: textValue(data, 'audience'), market: textValue(data, 'market'), angle: textValue(data, 'angle'), format: textValue(data, 'format') },
+      })
+    } catch (reason) { setSubmitError(message(reason)) } finally { setBusy(false) }
+  }
+  return <Dialog title="Edit creative brief" onClose={onClose} closeDisabled={busy} wide><div className="brief-editor-layout">
+    <form className="form-stack" onSubmit={submit}>
+      <FormError message={submitError} />
+      <label>Brief title<input aria-label="Brief title" name="title" maxLength={500} defaultValue={brief.title} required data-autofocus /></label>
+      <label>Brief status<select aria-label="Brief status" name="status" defaultValue={brief.status}>{briefStatusOptions(brief.status).map((status) => <option key={status} value={status}>{status}</option>)}</select></label>
+      <label>Hook<textarea aria-label="Hook" name="hook" maxLength={20_000} defaultValue={brief.hook} /></label>
+      <label>Call to action<input name="cta" maxLength={100} defaultValue={brief.callToAction ?? ''} /></label>
+      <div className="field-grid">
+        <label>Audience<input name="audience" maxLength={100} defaultValue={brief.dimensions.audience} required /></label>
+        <label>Market<input name="market" maxLength={100} defaultValue={brief.dimensions.market} required /></label>
+        <label>Angle<input name="angle" maxLength={100} defaultValue={brief.dimensions.angle} required /></label>
+        <label>Format<input name="format" maxLength={100} defaultValue={brief.dimensions.format} required /></label>
+      </div>
+      <FormActions onClose={onClose} busy={busy} submit="Save changes" />
+    </form>
+    <aside className="brief-history" aria-label="Version history"><span className="eyebrow">Version history</span>
+      {historyError && <div className="form-error" role="alert">{historyError}</div>}
+      {!historyError && versions.length === 0 && <p>Loading history…</p>}
+      {versions.map((version) => <article key={version.version}><strong>Version {version.version} by {version.changedBy}</strong><span>{formatDateTime(version.changedAt)} · {version.status}</span><p>{version.title}</p></article>)}
+    </aside>
+  </div></Dialog>
+}
+
+function briefStatusOptions(status: BriefStatus): BriefStatus[] {
+  const next: Record<BriefStatus, BriefStatus[]> = {
+    draft: ['draft', 'triage', 'archived'], triage: ['triage', 'draft', 'approved', 'archived'],
+    approved: ['approved', 'triage', 'production', 'archived'], production: ['production', 'approved', 'review', 'archived'],
+    review: ['review', 'production', 'completed', 'archived'], completed: ['completed', 'review', 'archived'], archived: ['archived', 'draft'],
+  }
+  return next[status]
 }
 
 function BriefDialog({ product, onClose, onSubmit }: {
@@ -760,6 +982,9 @@ function fallbackAxes(axes: IterationAxes): IterationAxes {
 }
 function initials(value: string): string { return value.split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '').join('') }
 function formatDate(value: string): string { return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(value)) }
+function formatDateTime(value: string): string { return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' }).format(new Date(value)) }
+function formatNumber(value: number): string { return new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(value) }
+function signedNumber(value: number): string { return `${value > 0 ? '+' : ''}${formatNumber(value)}` }
 function dimensionKey(value: BriefDimensions): string { return `${value.audience}\u0000${value.market}\u0000${value.angle}\u0000${value.format}` }
 function capitalize(value: string): string { return `${value[0]?.toUpperCase() ?? ''}${value.slice(1)}` }
 function textValue(data: FormData, key: string): string { const value = data.get(key); return typeof value === 'string' ? value.trim() : '' }

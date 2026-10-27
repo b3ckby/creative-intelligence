@@ -55,7 +55,9 @@ test('in-memory iteration map enforces the active brief cap', () => {
     id: 'brief', organizationId: 'org-1', productId: 'product-1', title: 'Brief', status: 'draft' as const,
     sourceAdId: null, hook: '', callToAction: null,
     dimensions: { audience: 'a', market: 'm', angle: 'x', format: 'f' },
+    version: 1,
     createdAt: '2026-10-26T00:00:00.000Z',
+    updatedAt: '2026-10-26T00:00:00.000Z',
   }
   const service = new IterationMapService(
     { findById() { return product } },

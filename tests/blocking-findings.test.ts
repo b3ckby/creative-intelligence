@@ -3,6 +3,8 @@ import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 
 import { DataType, newDb } from 'pg-mem'
+
+import { readPgMemMigration } from './helpers/pg-mem-migrations.ts'
 import type { FastifyRequest } from 'fastify'
 import { decodeAdRow, decodeCompetitorRow, decodeProductRow } from '../src/persistence/catalog-row-decoders.ts'
 import { buildApi } from '../src/http/build-api.ts'
@@ -13,9 +15,12 @@ async function testApi(ids = ['org-1', 'product-1', 'competitor-1', 'ad-1', 'ad-
   db.public.registerFunction({ name: 'length', args: [DataType.text], returns: DataType.integer, implementation: (value: string) => value.length })
   db.public.registerFunction({ name: 'trim', args: [DataType.text], returns: DataType.text, implementation: (value: string) => value.trim() })
   db.public.registerFunction({ name: 'set_config', args: [DataType.text, DataType.text, DataType.bool], returns: DataType.text, implementation: (_key: string, value: string) => value })
+  db.public.registerFunction({ name: 'jsonb_typeof', args: [DataType.jsonb], returns: DataType.text, implementation: (value: unknown) => Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value })
   const { Pool } = db.adapters.createPg()
   const pool = new Pool()
   await pool.query(await readFile(new URL('../migrations/001_initial.sql', import.meta.url), 'utf8'))
+  await pool.query(await readPgMemMigration(new URL('../migrations/006_ad_intelligence.sql', import.meta.url)))
+  await pool.query(await readPgMemMigration(new URL('../migrations/008_brief_workflow.sql', import.meta.url)))
   const app = buildApi({
     pool,
     cursorSigningKey: 'test-cursor-signing-key-at-least-32-bytes',
