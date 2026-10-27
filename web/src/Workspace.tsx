@@ -464,12 +464,8 @@ function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, o
 }
 
 function AdCreative({ ad }: { ad: CompetitorAd }) {
-  const [loaded, setLoaded] = useState(false)
   const mediaUrl = ad.mediaUrls[0]
   if (!mediaUrl) return <span>{initials(ad.advertiserName)}</span>
-  if (!loaded) {
-    return <button className="media-consent" type="button" aria-label={`Load creative from ${ad.advertiserName}`} onClick={() => setLoaded(true)}><strong>External media</strong><span>Load creative</span></button>
-  }
   if (isVideoUrl(mediaUrl)) {
     const poster = ad.mediaUrls.find((url) => url !== mediaUrl && !isVideoUrl(url))
     return <video controls playsInline preload="metadata" poster={poster} aria-label={`${ad.advertiserName} ad creative`}><source src={mediaUrl} /></video>

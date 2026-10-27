@@ -202,16 +202,15 @@ describe('Creative Intelligence workspace', () => {
     await waitFor(() => expect(document.activeElement).toBe(alert))
   })
 
-  it('does not contact third-party media hosts until the user explicitly loads a creative', async () => {
+  it('loads image creatives immediately without a consent button', async () => {
     const client = api()
     vi.mocked(client.listAds).mockResolvedValue({ items: [{ ...ad, mediaUrls: ['https://media.example.com/creative.jpg'] }], nextCursor: null })
     render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
     await screen.findByRole('heading', { name: 'Northstar' })
     fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
 
-    expect(screen.queryByRole('img')).toBeNull()
-    fireEvent.click(await screen.findByRole('button', { name: 'Load creative from Orbit' }))
-    expect(screen.getByRole('img', { name: 'Orbit ad creative' })).toBeTruthy()
+    expect(await screen.findByRole('img', { name: 'Orbit ad creative' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Load creative from Orbit' })).toBeNull()
   })
 
   it('renders opaque Facebook video URLs as playable video creatives', async () => {
@@ -229,11 +228,12 @@ describe('Creative Intelligence workspace', () => {
     const { container } = render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
     await screen.findByRole('heading', { name: 'Northstar' })
     fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Load creative from Orbit' }))
 
     const video = container.querySelector('video')
     expect(video).not.toBeNull()
+    expect(screen.queryByRole('button', { name: 'Load creative from Orbit' })).toBeNull()
     expect(video?.controls).toBe(true)
+    expect(getComputedStyle(video!).objectFit).toBe('contain')
     expect(video?.getAttribute('poster')).toBe('https://scontent-gru1-2.xx.fbcdn.net/v/t39.35426-6/preview-token')
     expect(video?.querySelector('source')?.getAttribute('src')).toBe('https://video-gru1-1.xx.fbcdn.net/o1/v/t2/f2/m366/opaque-video-token')
   })
