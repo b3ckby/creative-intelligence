@@ -156,7 +156,7 @@ describe('Creative Intelligence workspace', () => {
     const briefsButton = screen.getByRole('button', { name: 'Brief Builder' })
     fireEvent.click(briefsButton)
     expect(briefsButton.getAttribute('aria-pressed')).toBe('true')
-    const trigger = screen.getByRole('button', { name: 'New brief' })
+    const trigger = screen.getAllByRole('button', { name: 'New brief' })[0]!
     trigger.focus()
     fireEvent.click(trigger)
 
@@ -198,6 +198,30 @@ describe('Creative Intelligence workspace', () => {
     expect(screen.queryByRole('img')).toBeNull()
     fireEvent.click(await screen.findByRole('button', { name: 'Load creative from Orbit' }))
     expect(screen.getByRole('img', { name: 'Orbit ad creative' })).toBeTruthy()
+  })
+
+  it('renders opaque Facebook video URLs as playable video creatives', async () => {
+    const client = api()
+    vi.mocked(client.listAds).mockResolvedValue({
+      items: [{
+        ...ad,
+        mediaUrls: [
+          'https://video-gru1-1.xx.fbcdn.net/o1/v/t2/f2/m366/opaque-video-token',
+          'https://scontent-gru1-2.xx.fbcdn.net/v/t39.35426-6/preview-token',
+        ],
+      }],
+      nextCursor: null,
+    })
+    const { container } = render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Load creative from Orbit' }))
+
+    const video = container.querySelector('video')
+    expect(video).not.toBeNull()
+    expect(video?.controls).toBe(true)
+    expect(video?.getAttribute('poster')).toBe('https://scontent-gru1-2.xx.fbcdn.net/v/t39.35426-6/preview-token')
+    expect(video?.querySelector('source')?.getAttribute('src')).toBe('https://video-gru1-1.xx.fbcdn.net/o1/v/t2/f2/m366/opaque-video-token')
   })
 
   it('keeps a submitting dialog open until its mutation settles', async () => {

@@ -470,7 +470,20 @@ function AdCreative({ ad }: { ad: CompetitorAd }) {
   if (!loaded) {
     return <button className="media-consent" type="button" aria-label={`Load creative from ${ad.advertiserName}`} onClick={() => setLoaded(true)}><strong>External media</strong><span>Load creative</span></button>
   }
+  if (isVideoUrl(mediaUrl)) {
+    const poster = ad.mediaUrls.find((url) => url !== mediaUrl && !isVideoUrl(url))
+    return <video controls playsInline preload="metadata" poster={poster} aria-label={`${ad.advertiserName} ad creative`}><source src={mediaUrl} /></video>
+  }
   return <img src={mediaUrl} alt={`${ad.advertiserName} ad creative`} loading="lazy" referrerPolicy="no-referrer" />
+}
+
+function isVideoUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return url.hostname.toLowerCase().startsWith('video-') || /\.(?:mp4|m4v|webm|mov)$/iu.test(url.pathname)
+  } catch {
+    return false
+  }
 }
 
 function BriefsSurface({ briefs, onAdd }: { briefs: CreativeBrief[]; onAdd: () => void }) {

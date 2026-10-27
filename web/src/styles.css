@@ -136,7 +136,7 @@ a { color: inherit; }
 .live-dot.off { color: var(--muted); }
 .live-dot.off::before { background: #aaa; }
 .ad-visual { aspect-ratio: 4/3; display: grid; place-items: center; overflow: hidden; color: var(--paper); background: var(--green); border-bottom: 1px solid var(--line); font: 500 4rem var(--serif); }
-.ad-visual img { width: 100%; height: 100%; object-fit: cover; }
+.ad-visual img, .ad-visual video { width: 100%; height: 100%; object-fit: cover; }
 .media-consent { display: grid; place-items: center; gap: 8px; width: 100%; height: 100%; padding: 24px; color: var(--paper); background: transparent; border: 0; font: 600 .72rem var(--sans); letter-spacing: .1em; text-transform: uppercase; }
 .media-consent strong { font: 500 1.2rem var(--serif); letter-spacing: normal; text-transform: none; }
 .media-consent span { text-decoration: underline; text-underline-offset: 4px; }
