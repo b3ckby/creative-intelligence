@@ -13,6 +13,9 @@ const EXPECTED_OPERATIONS = [
   'POST /organizations/{organizationId}/products',
   'GET /organizations/{organizationId}/products',
   'GET /organizations/{organizationId}/products/{productId}',
+  'PATCH /organizations/{organizationId}/products/{productId}',
+  'POST /organizations/{organizationId}/products/{productId}/archive',
+  'POST /organizations/{organizationId}/products/{productId}/restore',
   'POST /organizations/{organizationId}/products/{productId}/competitors',
   'GET /organizations/{organizationId}/products/{productId}/competitors',
   'GET /organizations/{organizationId}/products/{productId}/competitors/{competitorId}',
@@ -172,6 +175,7 @@ test('operation contracts list only endpoint-reachable error statuses', () => {
   assert.deepEqual(Object.keys(byId.createOrganization!.schema.response).map(Number).sort((a, b) => a - b), [201, 400, 401, 409, 413, 415, 500])
   assert.deepEqual(Object.keys(byId.listProducts!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 500])
   assert.deepEqual(Object.keys(byId.getProduct!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 500])
+  assert.deepEqual(Object.keys(byId.updateProduct!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 413, 415, 500])
   assert.deepEqual(Object.keys(byId.syncApifyMetaAds!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 409, 413, 415, 500, 502, 503])
   assert.deepEqual(Object.keys(byId.getScalingAnalytics!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 500])
   for (const operationId of ['createBriefFromAd', 'createManualBrief', 'listBriefs', 'getBrief', 'analyzeIterationMap']) {

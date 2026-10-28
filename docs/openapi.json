@@ -1401,6 +1401,876 @@
             }
           }
         }
+      },
+      "patch": {
+        "operationId": "updateProduct",
+        "summary": "Update product fields",
+        "tags": [
+          "Products"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "organizationId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "maxLength": 300,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "markets": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                      }
+                    },
+                    "platforms": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "ios",
+                          "android",
+                          "web"
+                        ]
+                      }
+                    },
+                    "targetAudiences": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                      }
+                    },
+                    "uniqueSellingPoints": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                      }
+                    },
+                    "archivedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "canonical-javascript-timestamp",
+                          "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "organizationId",
+                    "name",
+                    "markets",
+                    "platforms",
+                    "targetAudiences",
+                    "uniqueSellingPoints",
+                    "archivedAt",
+                    "createdAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,298}\\S))\\s*$",
+                    "description": "Leading and trailing whitespace is removed; the normalized value is at most 300 characters."
+                  },
+                  "markets": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 100,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,498}\\S))\\s*$",
+                      "description": "Leading and trailing whitespace is removed; the normalized value is at most 500 characters."
+                    }
+                  },
+                  "platforms": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "ios",
+                        "android",
+                        "web"
+                      ]
+                    }
+                  },
+                  "targetAudiences": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 100,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,498}\\S))\\s*$",
+                      "description": "Leading and trailing whitespace is removed; the normalized value is at most 500 characters."
+                    }
+                  },
+                  "uniqueSellingPoints": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 100,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\s*(?:(?:\\S|\\S[^\\u0000-\\u001F\\u007F-\\u009F]{0,498}\\S))\\s*$",
+                      "description": "Leading and trailing whitespace is removed; the normalized value is at most 500 characters."
+                    }
+                  }
+                },
+                "required": [],
+                "minProperties": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/products/{productId}/archive": {
+      "post": {
+        "operationId": "archiveProduct",
+        "summary": "Archive a product without deleting its history",
+        "tags": [
+          "Products"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "organizationId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "maxLength": 300,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "markets": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                      }
+                    },
+                    "platforms": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "ios",
+                          "android",
+                          "web"
+                        ]
+                      }
+                    },
+                    "targetAudiences": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                      }
+                    },
+                    "uniqueSellingPoints": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                      }
+                    },
+                    "archivedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "canonical-javascript-timestamp",
+                          "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "organizationId",
+                    "name",
+                    "markets",
+                    "platforms",
+                    "targetAudiences",
+                    "uniqueSellingPoints",
+                    "archivedAt",
+                    "createdAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/products/{productId}/restore": {
+      "post": {
+        "operationId": "restoreProduct",
+        "summary": "Restore an archived product",
+        "tags": [
+          "Products"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "organizationId": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "maxLength": 300,
+                      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                    },
+                    "markets": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                      }
+                    },
+                    "platforms": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "ios",
+                          "android",
+                          "web"
+                        ]
+                      }
+                    },
+                    "targetAudiences": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                      }
+                    },
+                    "uniqueSellingPoints": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+                      }
+                    },
+                    "archivedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "canonical-javascript-timestamp",
+                          "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "canonical-javascript-timestamp",
+                      "description": "A canonical JavaScript Date instant exactly as emitted by Date.prototype.toISOString()."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "organizationId",
+                    "name",
+                    "markets",
+                    "platforms",
+                    "targetAudiences",
+                    "uniqueSellingPoints",
+                    "archivedAt",
+                    "createdAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/organizations/{organizationId}/products/{productId}/competitors": {
@@ -5959,6 +6829,44 @@
           },
           "409": {
             "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
             "content": {
               "application/json": {
                 "schema": {

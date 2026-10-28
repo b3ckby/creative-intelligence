@@ -120,6 +120,26 @@ test('REST API synchronizes a competitor through the configured Apify actor', as
   await pool.end()
 })
 
+test('REST API rejects Apify sync after product archive without calling the provider', async () => {
+  let apifyCalls = 0
+  const { app, pool } = await testApi(['org-1', 'product-1', 'competitor-1'], undefined, async () => {
+    apifyCalls += 1
+    return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } })
+  })
+  const auth = { 'x-user-id': 'admin-1' }
+  await app.inject({ method: 'POST', url: '/organizations', headers: auth, payload: { name: 'Creative Team' } })
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products', headers: auth, payload: { name: 'Focus Timer', markets: [], platforms: ['web'], targetAudiences: [], uniqueSellingPoints: [] } })
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products/product-1/competitors', headers: auth, payload: { name: 'Study Buddy', metaPageUrl: 'https://www.facebook.com/studybuddy' } })
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products/product-1/archive', headers: auth })
+
+  const response = await app.inject({ method: 'POST', url: '/organizations/org-1/products/product-1/competitors/competitor-1/ads/apify-meta/sync', headers: auth })
+  assert.equal(response.statusCode, 404)
+  assert.deepEqual(response.json(), { error: 'Not found' })
+  assert.equal(apifyCalls, 0)
+  await app.close()
+  await pool.end()
+})
+
 test('REST API coalesces concurrent sync requests for the same competitor', async () => {
   let apifyCalls = 0
   let release: (() => void) | undefined

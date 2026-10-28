@@ -48,6 +48,36 @@ describe('Creative Intelligence API client', () => {
     })
   })
 
+  it('edits, archives, and restores products through encoded lifecycle routes', async () => {
+    const active = product('product / one')
+    const archived = { ...active, archivedAt: '2026-10-28T00:00:00.000Z' }
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ ...active, name: 'Updated' }))
+      .mockResolvedValueOnce(jsonResponse(archived))
+      .mockResolvedValueOnce(jsonResponse(active))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = createApiClient(connection)
+    const draft = { name: 'Updated', markets: ['US'], platforms: ['web' as const], targetAudiences: ['Teams'], uniqueSellingPoints: ['Fast'] }
+
+    await expect(client.updateProduct('product / one', draft)).resolves.toMatchObject({ name: 'Updated' })
+    await expect(client.archiveProduct('product / one')).resolves.toEqual(archived)
+    await expect(client.restoreProduct('product / one')).resolves.toEqual(active)
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ['https://api.example.test/organizations/org%20%2F%20north/products/product%20%2F%20one', 'PATCH'],
+      ['https://api.example.test/organizations/org%20%2F%20north/products/product%20%2F%20one/archive', 'POST'],
+      ['https://api.example.test/organizations/org%20%2F%20north/products/product%20%2F%20one/restore', 'POST'],
+    ])
+  })
+
+  it('bounds product lifecycle identifiers before making a request', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal('fetch', fetchMock)
+    const client = createApiClient(connection)
+
+    await expect(client.archiveProduct('x'.repeat(257))).rejects.toEqual(new ApiError(0, 'Resource ID is invalid'))
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('loads and strictly validates product scaling analytics', async () => {
     const payload = {
       label: 'Scale signals',
@@ -215,8 +245,8 @@ describe('Creative Intelligence API client', () => {
 
     await expect(createApiClient(connection).listProducts()).resolves.toEqual({ items: [first, second], nextCursor: null })
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      'https://api.example.test/organizations/org%20%2F%20north/products?limit=100',
-      'https://api.example.test/organizations/org%20%2F%20north/products?limit=100&cursor=next%2Fcursor',
+      'https://api.example.test/organizations/org%20%2F%20north/products?limit=100&includeArchived=true',
+      'https://api.example.test/organizations/org%20%2F%20north/products?limit=100&includeArchived=true&cursor=next%2Fcursor',
     ])
   })
 

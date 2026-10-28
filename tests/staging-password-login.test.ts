@@ -44,6 +44,7 @@ test('staging password login exchanges the configured password for a bounded OID
     algorithms: ['RS256'],
     issuer: ISSUER,
     audience: AUDIENCE,
+    currentDate: new Date('2026-10-27T10:00:00.000Z'),
   })
 
   assert.equal(verified.protectedHeader.kid, 'staging-key-1')

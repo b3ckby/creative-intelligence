@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { BRIEF_STATUS_TRANSITIONS } from '../../src/domain/brief-status-transitions.ts'
 import type { CreativeIntelligenceApi } from './api.ts'
+import type { BriefStatus } from './types.ts'
 import { Workspace } from './Workspace.tsx'
 
 const product = {
@@ -53,6 +55,9 @@ function api(): CreativeIntelligenceApi {
   return {
     listProducts: vi.fn().mockResolvedValue({ items: [product], nextCursor: null }),
     createProduct: vi.fn(),
+    updateProduct: vi.fn().mockResolvedValue({ ...product, name: 'Northstar Pro' }),
+    archiveProduct: vi.fn().mockResolvedValue({ ...product, archivedAt: '2026-10-28T00:00:00.000Z' }),
+    restoreProduct: vi.fn().mockResolvedValue(product),
     listCompetitors: vi.fn().mockResolvedValue({ items: [competitor], nextCursor: null }),
     createCompetitor: vi.fn(),
     syncApifyMetaAds: vi.fn().mockResolvedValue({ inserted: 0, duplicates: 0 }),
@@ -71,6 +76,124 @@ function api(): CreativeIntelligenceApi {
 afterEach(cleanup)
 
 describe('Creative Intelligence workspace', () => {
+  it('edits the selected product from its product profile', async () => {
+    const client = api()
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit product' }))
+    const name = screen.getByLabelText('Product name')
+    fireEvent.change(name, { target: { value: 'Northstar Pro' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save product' }))
+
+    await waitFor(() => expect(client.updateProduct).toHaveBeenCalledWith(product.id, expect.objectContaining({ name: 'Northstar Pro' })))
+    expect(await screen.findByRole('heading', { name: 'Northstar Pro' })).toBeTruthy()
+  })
+
+  it('round-trips comma-bearing product list values through the editor', async () => {
+    const client = api()
+    const commaProduct = {
+      ...product,
+      markets: ['Washington, D.C.', 'New York'],
+      targetAudiences: ['Founders, operators', 'Marketing teams'],
+      uniqueSellingPoints: ['Fast, safe setup', 'No lock-in'],
+    }
+    vi.mocked(client.listProducts).mockResolvedValue({ items: [commaProduct], nextCursor: null })
+    vi.mocked(client.updateProduct).mockResolvedValue(commaProduct)
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit product' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save product' }))
+
+    await waitFor(() => expect(client.updateProduct).toHaveBeenCalledWith(product.id, expect.objectContaining({
+      markets: ['Washington, D.C.', 'New York'],
+      targetAudiences: ['Founders, operators', 'Marketing teams'],
+      uniqueSellingPoints: ['Fast, safe setup', 'No lock-in'],
+    })))
+  })
+
+  it('clears descendant surfaces and creation actions when a product is archived', async () => {
+    const client = api()
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Competitors' }))
+    expect(await screen.findByText('Orbit')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Products' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Archive product' }))
+    await screen.findByText('Archived')
+    fireEvent.click(screen.getByRole('button', { name: 'Competitors' }))
+
+    expect(screen.queryByText('Orbit')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Add competitor' })).toBeNull()
+    expect(screen.getByText('Restore the product to access its descendants.')).toBeTruthy()
+  })
+
+  it('keeps the selected product descendants when another product archive resolves late', async () => {
+    const secondProduct = { ...product, id: 'product-2', name: 'Beacon' }
+    const secondCompetitor = { ...competitor, id: 'competitor-2', productId: secondProduct.id, name: 'Beacon Rival' }
+    const archive = deferred<Awaited<ReturnType<CreativeIntelligenceApi['archiveProduct']>>>()
+    const client = api()
+    vi.mocked(client.listProducts).mockResolvedValue({ items: [product, secondProduct], nextCursor: null })
+    vi.mocked(client.archiveProduct).mockReturnValue(archive.promise)
+    vi.mocked(client.listCompetitors).mockImplementation(async (productId) => ({
+      items: productId === secondProduct.id ? [secondCompetitor] : [competitor],
+      nextCursor: null,
+    }))
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Archive product' }))
+    await waitFor(() => expect(client.archiveProduct).toHaveBeenCalledWith(product.id))
+    fireEvent.change(screen.getByLabelText('Select product'), { target: { value: secondProduct.id } })
+    fireEvent.click(screen.getByRole('button', { name: 'Competitors' }))
+    expect(await screen.findByText('Beacon Rival')).toBeTruthy()
+
+    await act(async () => {
+      archive.resolve({ ...product, archivedAt: '2026-10-28T00:00:00.000Z' })
+    })
+
+    expect(screen.getByText('Beacon Rival')).toBeTruthy()
+    expect(client.listCompetitors).toHaveBeenCalledTimes(2)
+    expect(client.listCompetitors).toHaveBeenLastCalledWith(secondProduct.id)
+
+    fireEvent.change(screen.getByLabelText('Select product'), { target: { value: product.id } })
+    expect(await screen.findByRole('heading', { name: 'Product archived' })).toBeTruthy()
+  })
+
+  it('reloads preserved descendants when an archived product is restored', async () => {
+    const client = api()
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    await waitFor(() => expect(client.listCompetitors).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Archive product' }))
+    await screen.findByText('Archived')
+    fireEvent.click(screen.getByRole('button', { name: 'Restore product' }))
+    await waitFor(() => expect(client.restoreProduct).toHaveBeenCalledWith(product.id))
+    fireEvent.click(screen.getByRole('button', { name: 'Competitors' }))
+
+    expect(await screen.findByText('Orbit')).toBeTruthy()
+    expect(client.listCompetitors).toHaveBeenCalledTimes(2)
+    expect(client.listAds).toHaveBeenCalledTimes(2)
+    expect(client.listBriefs).toHaveBeenCalledTimes(2)
+  })
+
+  it('archives and restores the selected product without removing it from the workspace', async () => {
+    const client = api()
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Archive product' }))
+    await waitFor(() => expect(client.archiveProduct).toHaveBeenCalledWith(product.id))
+    expect(await screen.findByText('Archived')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restore product' }))
+    await waitFor(() => expect(client.restoreProduct).toHaveBeenCalledWith(product.id))
+    expect(screen.queryByText('Archived')).toBeNull()
+  })
+
   it('loads a product context and exposes every MVP surface', async () => {
     const client = api()
     render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
@@ -110,6 +233,45 @@ describe('Creative Intelligence workspace', () => {
     })))
     expect(await screen.findByText('Founder velocity')).toBeTruthy()
     expect(screen.getByText('triage')).toBeTruthy()
+  })
+
+  it.each(Object.entries(BRIEF_STATUS_TRANSITIONS) as Array<[BriefStatus, readonly BriefStatus[]]>)('offers shared backend-valid transitions from %s', async (status, expected) => {
+    const client = api()
+    vi.mocked(client.listBriefs).mockResolvedValue({ items: [{ ...brief, status }], nextCursor: null })
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Brief Builder' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Founder speed' }))
+
+    const options = within(screen.getByLabelText('Brief status')).getAllByRole('option').map((option) => option.getAttribute('value'))
+    expect(options).toEqual(expected)
+  })
+
+  it('does not request Analytics for a product that starts or becomes archived', async () => {
+    const initiallyArchivedClient = api()
+    vi.mocked(initiallyArchivedClient.listProducts).mockResolvedValue({
+      items: [{ ...product, archivedAt: '2026-10-28T00:00:00.000Z' }],
+      nextCursor: null,
+    })
+    const initialView = render(<Workspace api={initiallyArchivedClient} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Analytics' }))
+    await act(async () => Promise.resolve())
+    const initiallyArchivedCalls = vi.mocked(initiallyArchivedClient.getScalingAnalytics).mock.calls.length
+    initialView.unmount()
+
+    const archivedInSessionClient = api()
+    render(<Workspace api={archivedInSessionClient} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Archive product' }))
+    await screen.findByText('Archived')
+    fireEvent.click(screen.getByRole('button', { name: 'Analytics' }))
+    await act(async () => Promise.resolve())
+
+    expect([
+      initiallyArchivedCalls,
+      vi.mocked(archivedInSessionClient.getScalingAnalytics).mock.calls.length,
+    ]).toEqual([0, 0])
   })
 
   it('loads the Analytics surface on demand and explains proxy metrics', async () => {

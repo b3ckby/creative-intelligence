@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { normalizeBriefUpdate, requireBriefStatusTransition } from '../src/briefs/brief-workflow.ts'
+import { BRIEF_STATUS_TRANSITIONS } from '../src/domain/brief-status-transitions.ts'
+import type { BriefStatus } from '../src/domain/types.ts'
 
 const dimensions = { audience: ' Founders ', market: ' US ', angle: ' Speed ', format: ' Video ' }
 
@@ -26,15 +28,26 @@ test('brief updates normalize a complete replacement and require a positive expe
   }
 })
 
-test('brief workflow permits only adjacent progress, correction, archive, and restore transitions', () => {
-  const allowed = [
-    ['draft', 'triage'], ['triage', 'draft'], ['triage', 'approved'], ['approved', 'triage'],
-    ['approved', 'production'], ['production', 'review'], ['review', 'production'],
-    ['review', 'completed'], ['archived', 'draft'], ['draft', 'archived'], ['completed', 'archived'],
-  ] as const
-  for (const [from, to] of allowed) assert.doesNotThrow(() => requireBriefStatusTransition(from, to))
-  assert.doesNotThrow(() => requireBriefStatusTransition('approved', 'approved'))
-  for (const [from, to] of [['draft', 'approved'], ['production', 'draft'], ['completed', 'review'], ['archived', 'completed']] as const) {
-    assert.throws(() => requireBriefStatusTransition(from, to), /transition/i)
+test('brief transition policy matches the explicit matrix for every status pair', () => {
+  const statuses: BriefStatus[] = ['draft', 'triage', 'approved', 'production', 'review', 'completed', 'archived']
+  const expected: Record<BriefStatus, readonly BriefStatus[]> = {
+    draft: ['draft', 'triage', 'archived'],
+    triage: ['triage', 'draft', 'approved', 'archived'],
+    approved: ['approved', 'triage', 'production', 'archived'],
+    production: ['production', 'review', 'archived'],
+    review: ['review', 'production', 'completed', 'archived'],
+    completed: ['completed', 'archived'],
+    archived: ['archived', 'draft'],
+  }
+
+  assert.deepEqual(BRIEF_STATUS_TRANSITIONS, expected)
+  for (const from of statuses) {
+    for (const to of statuses) {
+      if (expected[from].includes(to)) {
+        assert.doesNotThrow(() => requireBriefStatusTransition(from, to), `${from} -> ${to}`)
+      } else {
+        assert.throws(() => requireBriefStatusTransition(from, to), /transition/i, `${from} -> ${to}`)
+      }
+    }
   }
 })

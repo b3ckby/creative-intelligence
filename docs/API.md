@@ -63,9 +63,14 @@ Responses never include token, identity-provider, JWKS, database, SQL, private U
 - `POST /organizations/{organizationId}/products`
 - `GET /organizations/{organizationId}/products`
 - `GET /organizations/{organizationId}/products/{productId}`
+- `PATCH /organizations/{organizationId}/products/{productId}` updates one or more product profile fields with the same canonical validation as creation.
+- `POST /organizations/{organizationId}/products/{productId}/archive`
+- `POST /organizations/{organizationId}/products/{productId}/restore`
 - `POST /organizations/{organizationId}/products/{productId}/competitors`
 - `GET /organizations/{organizationId}/products/{productId}/competitors`
 - `GET /organizations/{organizationId}/products/{productId}/competitors/{competitorId}`
+
+Archiving is non-destructive: products and all descendant competitors, ads, and briefs remain stored. An archived product rejects new competitor creation and provider synchronization. Restoring the product clears only its own `archivedAt`; it does not restore or otherwise change a child's archive state.
 
 ### Ads
 

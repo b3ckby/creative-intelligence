@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 
+import { BRIEF_STATUS_TRANSITIONS } from '../../src/domain/brief-status-transitions.ts'
 import { ApiError, type AdFilters, type CreativeIntelligenceApi } from './api.ts'
 import type {
   BriefDimensions,
@@ -48,6 +49,8 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [showProductForm, setShowProductForm] = useState(false)
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  const [productLifecyclePending, setProductLifecyclePending] = useState(false)
   const [showCompetitorForm, setShowCompetitorForm] = useState(false)
   const [showBriefForm, setShowBriefForm] = useState(false)
   const [selectedAd, setSelectedAd] = useState<CompetitorAd | null>(null)
@@ -69,7 +72,7 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
   const selectedProduct = products.find((product) => product.id === selectedProductId) ?? products[0]
   const selectedProductRef = useRef('')
   selectedProductRef.current = selectedProduct?.id ?? ''
-  const dialogOpen = showProductForm || showCompetitorForm || showBriefForm || selectedAd !== null || selectedBrief !== null
+  const dialogOpen = showProductForm || editingProduct !== null || showCompetitorForm || showBriefForm || selectedAd !== null || selectedBrief !== null
 
   useEffect(() => {
     let active = true
@@ -103,7 +106,7 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
     setSelectedBrief(null)
     setAdFilters(selectedProduct ? { productId: selectedProduct.id } : {})
     setIterationMap(null)
-    if (!selectedProduct) return
+    if (!selectedProduct || selectedProduct.archivedAt !== null) return
     let active = true
     setPendingOperations((count) => count + 1)
     setError('')
@@ -123,12 +126,12 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
       setPendingOperations((count) => Math.max(0, count - 1))
     })
     return () => { active = false }
-  }, [api, selectedProduct?.id])
+  }, [api, selectedProduct?.id, selectedProduct?.archivedAt])
 
   useEffect(() => {
     setScalingAnalytics(null)
     setAnalyticsError('')
-    if (surface !== 'analytics' || !selectedProduct) return
+    if (surface !== 'analytics' || !selectedProduct || selectedProduct.archivedAt !== null) return
     let active = true
     const productId = selectedProduct.id
     setAnalyticsLoading(true)
@@ -171,6 +174,50 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
     setSelectedProductId(created.id)
     setShowProductForm(false)
     setNotice('Product added to the workspace.')
+  }
+
+  const updateProduct = async (draft: {
+    name: string; markets: string[]; platforms: Platform[]; targetAudiences: string[]; uniqueSellingPoints: string[]
+  }) => {
+    if (!editingProduct) return
+    const updated = await api.updateProduct(editingProduct.id, draft)
+    setProducts((current) => current.map((item) => item.id === updated.id ? updated : item))
+    setEditingProduct(null)
+    setNotice('Product updated.')
+  }
+
+  const toggleProductArchive = async () => {
+    if (!selectedProduct || productLifecyclePending) return
+    const productId = selectedProduct.id
+    const wasArchived = selectedProduct.archivedAt !== null
+    setProductLifecyclePending(true)
+    setError('')
+    try {
+      const updated = wasArchived
+        ? await api.restoreProduct(productId)
+        : await api.archiveProduct(productId)
+      setProducts((current) => current.map((item) => item.id === updated.id ? updated : item))
+      if (selectedProductRef.current !== productId) return
+      if (updated.archivedAt !== null) {
+        ++detailRequest.current
+        ++adsRequest.current
+        ++analysisRequest.current
+        setCompetitors([])
+        setAds([])
+        setBriefs([])
+        setIterationMap(null)
+        setScalingAnalytics(null)
+        setShowCompetitorForm(false)
+        setShowBriefForm(false)
+        setSelectedAd(null)
+        setSelectedBrief(null)
+      }
+      setNotice(updated.archivedAt === null ? 'Product restored.' : 'Product archived.')
+    } catch (reason) {
+      if (selectedProductRef.current === productId) setError(message(reason))
+    } finally {
+      setProductLifecyclePending(false)
+    }
   }
 
   const createCompetitor = async (draft: { name: string; metaPageUrl?: string | null }) => {
@@ -345,7 +392,9 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
             : <EmptyWorkspace onAdd={() => setShowProductForm(true)} />
         ) : selectedProduct ? (
           <>
-            {surface === 'overview' && <ProductOverview product={selectedProduct} competitors={competitors} ads={ads} briefs={briefs} />}
+            {surface === 'overview' && <ProductOverview product={selectedProduct} competitors={competitors} ads={ads} briefs={briefs} lifecyclePending={productLifecyclePending} onEdit={() => setEditingProduct(selectedProduct)} onToggleArchive={toggleProductArchive} />}
+            {surface !== 'overview' && selectedProduct.archivedAt !== null && <EmptyPanel title="Product archived" copy="Restore the product to access its descendants." />}
+            {selectedProduct.archivedAt === null && <>
             {surface === 'competitors' && (
               <CompetitorsSurface
                 competitors={competitors}
@@ -375,12 +424,14 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
             {surface === 'analytics' && (
               <AnalyticsSurface result={scalingAnalytics} loading={analyticsLoading} error={analyticsError} />
             )}
+            </>}
           </>
         ) : null}
       </main>
 
     </div>
       {showProductForm && <ProductDialog onClose={() => setShowProductForm(false)} onSubmit={createProduct} />}
+      {editingProduct && <ProductDialog product={editingProduct} onClose={() => setEditingProduct(null)} onSubmit={updateProduct} />}
       {showCompetitorForm && <CompetitorDialog onClose={() => setShowCompetitorForm(false)} onSubmit={createCompetitor} />}
       {showBriefForm && <BriefDialog product={selectedProduct} onClose={() => setShowBriefForm(false)} onSubmit={createBrief} />}
       {selectedBrief && <EditBriefDialog brief={selectedBrief} loadVersions={api.listBriefVersions} onClose={() => setSelectedBrief(null)} onSubmit={updateBrief} />}
@@ -389,8 +440,8 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
   )
 }
 
-function ProductOverview({ product, competitors, ads, briefs }: {
-  product: Product; competitors: Competitor[]; ads: CompetitorAd[]; briefs: CreativeBrief[]
+function ProductOverview({ product, competitors, ads, briefs, lifecyclePending, onEdit, onToggleArchive }: {
+  product: Product; competitors: Competitor[]; ads: CompetitorAd[]; briefs: CreativeBrief[]; lifecyclePending: boolean; onEdit: () => void; onToggleArchive: () => Promise<void>
 }) {
   const activeAds = ads.filter((ad) => ad.isActive).length
   return (
@@ -413,6 +464,11 @@ function ProductOverview({ product, competitors, ads, briefs }: {
             <div><dt>Audience</dt><dd>{product.targetAudiences.join(', ') || 'Not set'}</dd></div>
             <div><dt>Promise</dt><dd>{product.uniqueSellingPoints.join(' · ') || 'Not set'}</dd></div>
           </dl>
+          {product.archivedAt && <span className="status-pill muted">Archived</span>}
+          <div className="card-actions">
+            <button type="button" className="text-button" onClick={onEdit}>Edit product</button>
+            <button type="button" className="text-button" disabled={lifecyclePending} onClick={() => void onToggleArchive()}>{product.archivedAt ? 'Restore product' : 'Archive product'}</button>
+          </div>
         </article>
         <article className="signal-board ink-panel">
           <div className="panel-heading"><span>Signal board</span><small>live snapshot</small></div>
@@ -785,7 +841,8 @@ function EmptyPanel({ title, copy, action, onAction }: { title: string; copy: st
   return <div className="empty-panel"><h3>{title}</h3><p>{copy}</p>{action && onAction && <button onClick={onAction}>{action}</button>}</div>
 }
 
-function ProductDialog({ onClose, onSubmit }: {
+function ProductDialog({ product, onClose, onSubmit }: {
+  product?: Product
   onClose: () => void
   onSubmit: (draft: { name: string; markets: string[]; platforms: Platform[]; targetAudiences: string[]; uniqueSellingPoints: string[] }) => Promise<void>
 }) {
@@ -796,20 +853,20 @@ function ProductDialog({ onClose, onSubmit }: {
     const data = new FormData(event.currentTarget)
     try {
       await onSubmit({
-        name: textValue(data, 'name'), markets: csv(textValue(data, 'markets')),
+        name: textValue(data, 'name'), markets: lines(textValue(data, 'markets')),
         platforms: data.getAll('platforms').filter((value): value is Platform => typeof value === 'string' && ['ios', 'android', 'web'].includes(value)),
-        targetAudiences: csv(textValue(data, 'audiences')), uniqueSellingPoints: csv(textValue(data, 'sellingPoints')),
+        targetAudiences: lines(textValue(data, 'audiences')), uniqueSellingPoints: lines(textValue(data, 'sellingPoints')),
       })
     } catch (reason) { setSubmitError(message(reason)) } finally { setBusy(false) }
   }
-  return <Dialog title="Create product" onClose={onClose} closeDisabled={busy}><form className="form-stack" onSubmit={submit}>
+  return <Dialog title={product ? 'Edit product' : 'Create product'} onClose={onClose} closeDisabled={busy}><form className="form-stack" onSubmit={submit}>
     <FormError message={submitError} />
-    <label>Product name<input name="name" maxLength={300} required data-autofocus /></label>
-    <label>Markets<input name="markets" placeholder="US, UK" /></label>
-    <fieldset><legend>Platforms</legend><label><input type="checkbox" name="platforms" value="ios" /> iOS</label><label><input type="checkbox" name="platforms" value="android" /> Android</label><label><input type="checkbox" name="platforms" value="web" /> Web</label></fieldset>
-    <label>Target audiences<input name="audiences" placeholder="Founders, Marketing teams" /></label>
-    <label>Unique selling points<textarea name="sellingPoints" placeholder="One idea, another idea" /></label>
-    <FormActions onClose={onClose} busy={busy} submit="Create product" />
+    <label>Product name<input name="name" maxLength={300} defaultValue={product?.name ?? ''} required data-autofocus /></label>
+    <label>Markets<textarea name="markets" defaultValue={product?.markets.join('\n') ?? ''} placeholder={'US\nWashington, D.C.'} /></label>
+    <fieldset><legend>Platforms</legend><label><input type="checkbox" name="platforms" value="ios" defaultChecked={product?.platforms.includes('ios')} /> iOS</label><label><input type="checkbox" name="platforms" value="android" defaultChecked={product?.platforms.includes('android')} /> Android</label><label><input type="checkbox" name="platforms" value="web" defaultChecked={product?.platforms.includes('web')} /> Web</label></fieldset>
+    <label>Target audiences<textarea name="audiences" defaultValue={product?.targetAudiences.join('\n') ?? ''} placeholder={'Founders\nMarketing teams'} /></label>
+    <label>Unique selling points<textarea name="sellingPoints" defaultValue={product?.uniqueSellingPoints.join('\n') ?? ''} placeholder={'One idea per line\nCommas stay intact'} /></label>
+    <FormActions onClose={onClose} busy={busy} submit={product ? 'Save product' : 'Create product'} />
   </form></Dialog>
 }
 
@@ -880,13 +937,8 @@ function EditBriefDialog({ brief, loadVersions, onClose, onSubmit }: {
   </div></Dialog>
 }
 
-function briefStatusOptions(status: BriefStatus): BriefStatus[] {
-  const next: Record<BriefStatus, BriefStatus[]> = {
-    draft: ['draft', 'triage', 'archived'], triage: ['triage', 'draft', 'approved', 'archived'],
-    approved: ['approved', 'triage', 'production', 'archived'], production: ['production', 'approved', 'review', 'archived'],
-    review: ['review', 'production', 'completed', 'archived'], completed: ['completed', 'review', 'archived'], archived: ['archived', 'draft'],
-  }
-  return next[status]
+function briefStatusOptions(status: BriefStatus): readonly BriefStatus[] {
+  return BRIEF_STATUS_TRANSITIONS[status]
 }
 
 function BriefDialog({ product, onClose, onSubmit }: {
@@ -971,6 +1023,7 @@ function message(reason: unknown): string {
   return 'Something went wrong'
 }
 function csv(value: string): string[] { return unique(value.split(',').map((item) => item.trim()).filter(Boolean)) }
+function lines(value: string): string[] { return unique(value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)) }
 function unique(values: string[]): string[] { return [...new Set(values.map((item) => item.trim()).filter(Boolean))] }
 function fallbackAxes(axes: IterationAxes): IterationAxes {
   return {

@@ -8,7 +8,7 @@ import { DataType, newDb } from 'pg-mem'
 import { readPgMemMigration } from './helpers/pg-mem-migrations.ts'
 import { buildApi } from '../src/http/build-api.ts'
 
-async function testApi(ids: string[]) {
+async function testApi(ids: string[], beforeQuery?: (sql: string) => Promise<void>) {
   const db = newDb()
   db.public.registerFunction({ name: 'length', args: [DataType.text], returns: DataType.integer, implementation: (value: string) => value.length })
   db.public.registerFunction({ name: 'trim', args: [DataType.text], returns: DataType.text, implementation: (value: string) => value.trim() })
@@ -19,8 +19,21 @@ async function testApi(ids: string[]) {
   await pool.query(await readFile(new URL('../migrations/001_initial.sql', import.meta.url), 'utf8'))
   await pool.query(await readPgMemMigration(new URL('../migrations/006_ad_intelligence.sql', import.meta.url)))
   await pool.query(await readPgMemMigration(new URL('../migrations/008_brief_workflow.sql', import.meta.url)))
+  const appPool = beforeQuery ? {
+    query: pool.query.bind(pool),
+    connect: async () => {
+      const client = await pool.connect()
+      return {
+        query: async (sql: string, values?: unknown[]) => {
+          await beforeQuery(sql)
+          return client.query(sql, values)
+        },
+        release: (error?: Error) => client.release(error),
+      }
+    },
+  } : pool
   const app = buildApi({
-    pool,
+    pool: appPool,
     cursorSigningKey: 'test-cursor-signing-key-at-least-32-bytes',
     createId: () => ids.shift() ?? 'unexpected-id',
     now: () => new Date('2026-10-26T00:00:00.000Z'),
@@ -68,6 +81,146 @@ test('product get/list uses an explicit bounded cursor page and excludes archive
   const foundArchived = await app.inject({ method: 'GET', url: '/organizations/org-1/products/product-z?includeArchived=true', headers: auth })
   assert.equal(foundArchived.statusCode, 200)
 
+  await app.close()
+  await pool.end()
+})
+
+test('product PATCH returns its documented oversized and unsupported media errors', async () => {
+  const { app, pool } = await testApi([])
+  const unsupported = await app.inject({
+    method: 'PATCH', url: '/organizations/org-1/products/product-1',
+    headers: { ...auth, 'content-type': 'application/xml' }, payload: '<name>Renamed</name>',
+  })
+  assert.equal(unsupported.statusCode, 415)
+  assert.deepEqual(unsupported.json(), { error: 'Unsupported media type' })
+
+  const oversized = await app.inject({
+    method: 'PATCH', url: '/organizations/org-1/products/product-1',
+    headers: { ...auth, 'content-type': 'application/json' },
+    payload: JSON.stringify({ name: 'x'.repeat(1_100_000) }),
+  })
+  assert.equal(oversized.statusCode, 413)
+  assert.deepEqual(oversized.json(), { error: 'Payload too large' })
+  await app.close()
+  await pool.end()
+})
+
+test('product PATCH updates canonical fields and preserves identity and lifecycle timestamps', async () => {
+  const { app, pool } = await testApi(['org-1', 'product-1'])
+  await createOrganization(app)
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products', headers: auth, payload: productPayload('Original') })
+
+  const response = await app.inject({
+    method: 'PATCH', url: '/organizations/org-1/products/product-1', headers: auth,
+    payload: { name: ' Updated ', markets: [' US '], platforms: ['ios'], targetAudiences: [' teams '], uniqueSellingPoints: [' fast '] },
+  })
+
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json(), {
+    id: 'product-1', organizationId: 'org-1', name: 'Updated', markets: ['US'], platforms: ['ios'],
+    targetAudiences: ['teams'], uniqueSellingPoints: ['fast'], archivedAt: null, createdAt: '2026-10-26T00:00:00.000Z',
+  })
+  await app.close()
+  await pool.end()
+})
+
+test('product PATCH accepts a bounded partial field update with canonical validation', async () => {
+  const { app, pool } = await testApi(['org-1', 'product-1'])
+  await createOrganization(app)
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products', headers: auth, payload: productPayload('Original') })
+
+  const response = await app.inject({
+    method: 'PATCH', url: '/organizations/org-1/products/product-1', headers: auth, payload: { name: ' Renamed ' },
+  })
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(response.json().markets, [])
+  assert.equal(response.json().name, 'Renamed')
+
+  const empty = await app.inject({ method: 'PATCH', url: '/organizations/org-1/products/product-1', headers: auth, payload: {} })
+  assert.equal(empty.statusCode, 400)
+  assert.deepEqual(empty.json(), { error: 'Invalid request' })
+  await app.close()
+  await pool.end()
+})
+
+test('concurrent disjoint product PATCH requests preserve both field updates', async () => {
+  let reads = 0
+  let gatePatchReads = true
+  let releaseReads!: () => void
+  const bothReadsStarted = new Promise<void>((resolve) => { releaseReads = resolve })
+  const { app, pool } = await testApi(['org-1', 'product-1'], async (sql) => {
+    if (!gatePatchReads || !/^SELECT \* FROM products WHERE/.test(sql)) return
+    reads += 1
+    if (reads === 2) releaseReads()
+    await bothReadsStarted
+  })
+  await createOrganization(app)
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products', headers: auth, payload: productPayload('Original') })
+
+  const [renamed, retargeted] = await Promise.all([
+    app.inject({ method: 'PATCH', url: '/organizations/org-1/products/product-1', headers: auth, payload: { name: 'Renamed' } }),
+    app.inject({ method: 'PATCH', url: '/organizations/org-1/products/product-1', headers: auth, payload: { markets: ['Washington, D.C.'] } }),
+  ])
+  assert.equal(renamed.statusCode, 200)
+  assert.equal(retargeted.statusCode, 200)
+  gatePatchReads = false
+
+  const current = await app.inject({ method: 'GET', url: '/organizations/org-1/products/product-1', headers: auth })
+  assert.equal(current.statusCode, 200)
+  assert.equal(current.json().name, 'Renamed')
+  assert.deepEqual(current.json().markets, ['Washington, D.C.'])
+  await app.close()
+  await pool.end()
+})
+
+test('product archive and restore reject non-empty JSON request bodies', async () => {
+  const { app, pool } = await testApi(['org-1', 'product-1'])
+  await createOrganization(app)
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products', headers: auth, payload: productPayload('Product') })
+
+  for (const action of ['archive', 'restore']) {
+    const response = await app.inject({
+      method: 'POST', url: `/organizations/org-1/products/product-1/${action}`, headers: auth, payload: { ignored: true },
+    })
+    assert.equal(response.statusCode, 400, action)
+    assert.deepEqual(response.json(), { error: 'Invalid request' }, action)
+  }
+  await app.close()
+  await pool.end()
+})
+
+test('product archive preserves descendants and blocks new competitors', async () => {
+  const { app, pool } = await testApi(['org-1', 'product-1', 'competitor-1', 'unexpected-competitor'])
+  await createOrganization(app)
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products', headers: auth, payload: productPayload('Product') })
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products/product-1/competitors', headers: auth, payload: { name: 'Existing' } })
+
+  const archived = await app.inject({ method: 'POST', url: '/organizations/org-1/products/product-1/archive', headers: auth })
+  assert.equal(archived.statusCode, 200)
+  assert.equal(archived.json().archivedAt, '2026-10-26T00:00:00.000Z')
+  const descendants = await pool.query(`SELECT id, archived_at FROM competitors WHERE product_id = 'product-1'`)
+  assert.deepEqual(descendants.rows, [{ id: 'competitor-1', archived_at: null }])
+  const rejected = await app.inject({
+    method: 'POST', url: '/organizations/org-1/products/product-1/competitors', headers: auth, payload: { name: 'Rejected' },
+  })
+  assert.equal(rejected.statusCode, 400)
+  await app.close()
+  await pool.end()
+})
+
+test('product restore reactivates only the product and leaves child archive state unchanged', async () => {
+  const { app, pool } = await testApi(['org-1', 'product-1', 'competitor-1'])
+  await createOrganization(app)
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products', headers: auth, payload: productPayload('Product') })
+  await app.inject({ method: 'POST', url: '/organizations/org-1/products/product-1/competitors', headers: auth, payload: { name: 'Competitor' } })
+  await pool.query(`UPDATE products SET archived_at = '2026-10-27T00:00:00Z' WHERE id = 'product-1'`)
+  await pool.query(`UPDATE competitors SET archived_at = '2026-10-28T00:00:00Z' WHERE id = 'competitor-1'`)
+
+  const restored = await app.inject({ method: 'POST', url: '/organizations/org-1/products/product-1/restore', headers: auth })
+  assert.equal(restored.statusCode, 200)
+  assert.equal(restored.json().archivedAt, null)
+  const child = await pool.query(`SELECT archived_at FROM competitors WHERE id = 'competitor-1'`)
+  assert.equal(new Date(child.rows[0].archived_at).toISOString(), '2026-10-28T00:00:00.000Z')
   await app.close()
   await pool.end()
 })

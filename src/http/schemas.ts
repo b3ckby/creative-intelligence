@@ -90,6 +90,9 @@ const AUTHORIZATION_OPERATIONS = new Set([
   'createProduct',
   'listProducts',
   'getProduct',
+  'updateProduct',
+  'archiveProduct',
+  'restoreProduct',
   'createCompetitor',
   'listCompetitors',
   'getCompetitor',
@@ -102,7 +105,7 @@ const AUTHORIZATION_OPERATIONS = new Set([
   'updateBrief',
   'listBriefVersions',
 ])
-const NOT_FOUND_OPERATIONS = new Set(['getProduct', 'getCompetitor', 'getBrief', 'updateBrief', 'listBriefVersions', 'syncApifyMetaAds', 'getScalingAnalytics', 'analyzeCreative'])
+const NOT_FOUND_OPERATIONS = new Set(['getProduct', 'updateProduct', 'archiveProduct', 'restoreProduct', 'getCompetitor', 'getBrief', 'updateBrief', 'listBriefVersions', 'syncApifyMetaAds', 'getScalingAnalytics', 'analyzeCreative'])
 const CONFLICT_OPERATIONS = new Set([
   'createOrganization',
   'addOrganizationMember',
@@ -126,7 +129,7 @@ function errorResponsesFor(method: ApiMethod, operationId: string): Record<numbe
     statuses.add(503)
   }
   if (operationId === 'analyzeCreative') statuses.add(429)
-  if (method === 'POST') {
+  if (method === 'POST' || method === 'PATCH') {
     statuses.add(413)
     statuses.add(415)
   }
@@ -289,6 +292,11 @@ const productBody = strictObject({
   targetAudiences: normalizedStringList(100, 500),
   uniqueSellingPoints: normalizedStringList(100, 500),
 })
+const productPatchBody: JsonSchema = {
+  ...productBody,
+  required: [],
+  minProperties: 1,
+}
 const manualAdRecord: JsonSchema = {
   ...strictObject({
     externalId: normalizedText(256),
@@ -340,6 +348,9 @@ export const API_CONTRACTS: readonly ApiContract[] = [
   route('POST', '/organizations/:organizationId/products', '/organizations/{organizationId}/products', 'createProduct', 'Create a product', 'Products', { params: params('organizationId'), querystring: noQuery, body: productBody }, 201, product),
   route('GET', '/organizations/:organizationId/products', '/organizations/{organizationId}/products', 'listProducts', 'List products', 'Products', { params: params('organizationId'), querystring: paginationQuery() }, 200, page(product)),
   route('GET', '/organizations/:organizationId/products/:productId', '/organizations/{organizationId}/products/{productId}', 'getProduct', 'Get a product', 'Products', { params: params('organizationId', 'productId'), querystring: detailQuery }, 200, product),
+  route('PATCH', '/organizations/:organizationId/products/:productId', '/organizations/{organizationId}/products/{productId}', 'updateProduct', 'Update product fields', 'Products', { params: params('organizationId', 'productId'), querystring: noQuery, body: productPatchBody }, 200, product),
+  route('POST', '/organizations/:organizationId/products/:productId/archive', '/organizations/{organizationId}/products/{productId}/archive', 'archiveProduct', 'Archive a product without deleting its history', 'Products', { params: params('organizationId', 'productId'), querystring: noQuery }, 200, product),
+  route('POST', '/organizations/:organizationId/products/:productId/restore', '/organizations/{organizationId}/products/{productId}/restore', 'restoreProduct', 'Restore an archived product', 'Products', { params: params('organizationId', 'productId'), querystring: noQuery }, 200, product),
   route('POST', '/organizations/:organizationId/products/:productId/competitors', '/organizations/{organizationId}/products/{productId}/competitors', 'createCompetitor', 'Create a competitor', 'Competitors', { params: params('organizationId', 'productId'), querystring: noQuery, body: strictObject({ name: normalizedText(300), metaPageUrl: { anyOf: [httpsUrl, { type: 'null' }] } }, ['name']) }, 201, competitor),
   route('GET', '/organizations/:organizationId/products/:productId/competitors', '/organizations/{organizationId}/products/{productId}/competitors', 'listCompetitors', 'List competitors', 'Competitors', { params: params('organizationId', 'productId'), querystring: paginationQuery() }, 200, page(competitor)),
   route('GET', '/organizations/:organizationId/products/:productId/competitors/:competitorId', '/organizations/{organizationId}/products/{productId}/competitors/{competitorId}', 'getCompetitor', 'Get a competitor', 'Competitors', { params: params('organizationId', 'productId', 'competitorId'), querystring: detailQuery }, 200, competitor),

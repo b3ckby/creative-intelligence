@@ -41,6 +41,9 @@ export class ApiError extends Error {
 export interface CreativeIntelligenceApi {
   listProducts(): Promise<Page<Product>>
   createProduct(draft: ProductDraft): Promise<Product>
+  updateProduct(productId: string, draft: ProductDraft): Promise<Product>
+  archiveProduct(productId: string): Promise<Product>
+  restoreProduct(productId: string): Promise<Product>
   listCompetitors(productId: string): Promise<Page<Competitor>>
   createCompetitor(productId: string, draft: CompetitorDraft): Promise<Competitor>
   syncApifyMetaAds(productId: string, competitorId: string): Promise<{ inserted: number; duplicates: number }>
@@ -115,8 +118,11 @@ export function createApiClient(connection: ApiConnection): CreativeIntelligence
   }
 
   return {
-    listProducts: () => requestAll(`${organizationPath}/products?limit=${PAGE_LIMIT}`, parseProduct),
+    listProducts: () => requestAll(`${organizationPath}/products?limit=${PAGE_LIMIT}&includeArchived=true`, parseProduct),
     createProduct: (draft) => request('POST', `${organizationPath}/products`, parseProduct, draft),
+    updateProduct: async (productId, draft) => request('PATCH', `${organizationPath}/products/${segment(productId)}`, parseProduct, draft),
+    archiveProduct: async (productId) => request('POST', `${organizationPath}/products/${segment(productId)}/archive`, parseProduct),
+    restoreProduct: async (productId) => request('POST', `${organizationPath}/products/${segment(productId)}/restore`, parseProduct),
     listCompetitors: (productId) => requestAll(`${organizationPath}/products/${segment(productId)}/competitors?limit=${PAGE_LIMIT}`, parseCompetitor),
     createCompetitor: (productId, draft) => request('POST', `${organizationPath}/products/${segment(productId)}/competitors`, parseCompetitor, draft),
     syncApifyMetaAds: (productId, competitorId) => request('POST', `${organizationPath}/products/${segment(productId)}/competitors/${segment(competitorId)}/ads/apify-meta/sync`, parseImportResult),
@@ -463,7 +469,11 @@ function required(value: string, label: string): string {
   return normalized
 }
 
-function segment(value: string): string { return encodeURIComponent(required(value, 'Resource ID')) }
+function segment(value: string): string {
+  const result = required(value, 'Resource ID')
+  if ([...result].length > 256 || /[\u0000-\u001F\u007F-\u009F]/u.test(result)) throw new ApiError(0, 'Resource ID is invalid')
+  return encodeURIComponent(result)
+}
 
 function publicError(payload: unknown): string {
   if (typeof payload === 'object' && payload !== null && !Array.isArray(payload)) {

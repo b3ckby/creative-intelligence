@@ -221,6 +221,48 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     return product
   })
 
+  app.patch('/organizations/:organizationId/products/:productId', { schema: schemaFor('updateProduct') }, async (request) => {
+    const userId = await actor(request)
+    const organizationId = routeId(request, 'organizationId')
+    const productId = routeId(request, 'productId')
+    queryParameters(request, [])
+    const body = exactRecord(request.body, ['name', 'markets', 'platforms', 'targetAudiences', 'uniqueSellingPoints'])
+    await organizations.requireMembership(organizationId, userId)
+    const updated = await catalog.updateProduct(userId, organizationId, productId, {
+      ...(body.name === undefined ? {} : { name: nonEmptyText(body.name, 'Product name', 300) }),
+      ...(body.markets === undefined ? {} : { markets: textArray(body.markets, 'markets') }),
+      ...(body.platforms === undefined ? {} : { platforms: platforms(body.platforms) }),
+      ...(body.targetAudiences === undefined ? {} : { targetAudiences: textArray(body.targetAudiences, 'targetAudiences') }),
+      ...(body.uniqueSellingPoints === undefined ? {} : { uniqueSellingPoints: textArray(body.uniqueSellingPoints, 'uniqueSellingPoints') }),
+    })
+    if (!updated) throw new NotFoundError()
+    return updated
+  })
+
+  app.post('/organizations/:organizationId/products/:productId/archive', { schema: schemaFor('archiveProduct') }, async (request) => {
+    const userId = await actor(request)
+    const organizationId = routeId(request, 'organizationId')
+    const productId = routeId(request, 'productId')
+    queryParameters(request, [])
+    if (request.body !== undefined) exactRecord(request.body, [])
+    await organizations.requireMembership(organizationId, userId)
+    const product = await catalog.setProductArchived(userId, organizationId, productId, options.now().toISOString())
+    if (!product) throw new NotFoundError()
+    return product
+  })
+
+  app.post('/organizations/:organizationId/products/:productId/restore', { schema: schemaFor('restoreProduct') }, async (request) => {
+    const userId = await actor(request)
+    const organizationId = routeId(request, 'organizationId')
+    const productId = routeId(request, 'productId')
+    queryParameters(request, [])
+    if (request.body !== undefined) exactRecord(request.body, [])
+    await organizations.requireMembership(organizationId, userId)
+    const product = await catalog.setProductArchived(userId, organizationId, productId, null)
+    if (!product) throw new NotFoundError()
+    return product
+  })
+
   app.post('/organizations/:organizationId/products/:productId/competitors', { schema: schemaFor('createCompetitor') }, async (request, reply) => {
     const userId = await actor(request)
     const organizationId = routeId(request, 'organizationId')

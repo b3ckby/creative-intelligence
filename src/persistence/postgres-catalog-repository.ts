@@ -59,6 +59,51 @@ export class PostgresCatalogRepository {
     })
   }
 
+  async updateProduct(
+    verifiedUserId: string,
+    organizationId: string,
+    productId: string,
+    patch: Partial<Pick<Product, 'name' | 'markets' | 'platforms' | 'targetAudiences' | 'uniqueSellingPoints'>>,
+  ): Promise<Product | undefined> {
+    return withVerifiedUserContext(this.pool, verifiedUserId, async (client) => {
+      const values: unknown[] = [organizationId, productId]
+      const assignments: string[] = []
+      const add = (column: string, value: unknown, cast = '') => {
+        values.push(value)
+        assignments.push(`${column} = $${values.length}${cast}`)
+      }
+      if (patch.name !== undefined) add('name', patch.name)
+      if (patch.markets !== undefined) add('markets', JSON.stringify(patch.markets), '::jsonb')
+      if (patch.platforms !== undefined) add('platforms', JSON.stringify(patch.platforms), '::jsonb')
+      if (patch.targetAudiences !== undefined) add('target_audiences', JSON.stringify(patch.targetAudiences), '::jsonb')
+      if (patch.uniqueSellingPoints !== undefined) add('unique_selling_points', JSON.stringify(patch.uniqueSellingPoints), '::jsonb')
+      const result = await client.query<ProductRow>(
+        `UPDATE products SET ${assignments.join(', ')} WHERE organization_id = $1 AND id = $2 RETURNING *`,
+        values,
+      )
+      const row = result.rows[0]
+      return row && decodeProductRow(row)
+    })
+  }
+
+  async setProductArchived(
+    verifiedUserId: string,
+    organizationId: string,
+    productId: string,
+    archivedAt: string | null,
+  ): Promise<Product | undefined> {
+    return withVerifiedUserContext(this.pool, verifiedUserId, async (client) => {
+      const result = await client.query<ProductRow>(
+        archivedAt === null
+          ? `UPDATE products SET archived_at = NULL WHERE organization_id = $1 AND id = $2 RETURNING *`
+          : `UPDATE products SET archived_at = COALESCE(archived_at, $3) WHERE organization_id = $1 AND id = $2 RETURNING *`,
+        archivedAt === null ? [organizationId, productId] : [organizationId, productId, archivedAt],
+      )
+      const row = result.rows[0]
+      return row && decodeProductRow(row)
+    })
+  }
+
   async createCompetitor(verifiedUserId: string, competitor: Competitor): Promise<void> {
     try {
       await withVerifiedUserContext(this.pool, verifiedUserId, async (client) => {
