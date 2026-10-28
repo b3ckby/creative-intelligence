@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 
 import { DataType, newDb } from 'pg-mem'
 
-import { readPgMemMigration, readPgMemPoint3AdEvolution } from './helpers/pg-mem-migrations.ts'
+import { readPgMemMigration, readPgMemPoint3AdEvolution, registerPgMemPoint4AnalyticsCapture } from './helpers/pg-mem-migrations.ts'
 import type { ManualMetaAdRecord } from '../src/ad-ingestion/manual-meta-ads-provider.ts'
 import type { AdSourceProvider, CollectedAd } from '../src/ad-ingestion/ad-source-provider.ts'
 import { ConflictError, ExternalProviderError } from '../src/domain/errors.ts'
@@ -23,6 +23,7 @@ const record: ManualMetaAdRecord = {
 
 async function database() {
   const db = newDb()
+  registerPgMemPoint4AnalyticsCapture(db)
   db.public.registerFunction({ name: 'length', args: [DataType.text], returns: DataType.integer, implementation: (value: string) => value.length })
   db.public.registerFunction({ name: 'trim', args: [DataType.text], returns: DataType.text, implementation: (value: string) => value.trim() })
   db.public.registerFunction({ name: 'set_config', args: [DataType.text, DataType.text, DataType.bool], returns: DataType.text, implementation: (_key: string, value: string) => value })

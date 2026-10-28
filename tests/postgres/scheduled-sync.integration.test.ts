@@ -26,6 +26,7 @@ test('scheduled sync claims are single-flight, lease-recoverable, tenant scoped,
     assert.equal(original.status, 'running')
     assert.equal(original.attempt, 1)
     await assert.rejects(() => workerPool.query('SELECT id FROM competitor_ads'), /permission denied/i)
+    await assert.rejects(() => workerPool.query('SELECT competitor_id FROM competitor_analytics_snapshots'), /permission denied/i)
     await assert.rejects(() => workerPool.query(`INSERT INTO competitor_ads(id,ingestion_token,organization_id,product_id,competitor_id,provider_name,platform,external_id,advertiser_name,body,started_at,is_active,media_urls,source_url,first_seen_at,last_seen_at) VALUES ('forged','forged','org-sync','product-sync','competitor-sync','apify-meta-ads','meta','forged','Forged','Forged',clock_timestamp(),true,'[]','https://example.test',clock_timestamp(),clock_timestamp())`), /permission denied/i)
     await assert.rejects(() => runtimePool.query(`UPDATE competitor_ad_sync_runs SET status='cancelled'`), /permission denied/i)
 
@@ -73,6 +74,7 @@ test('a reclaimed run fences stale ad mutations and ledger completion', async ()
       organizationId: 'org-fence', productId: 'product-fence', competitorId: 'competitor-fence',
     }, staleProvider, { runId: first.id, owner: 'worker-a', token: first.fence_token }), /lease was lost/i)
     assert.equal((await inspectionPool.query(`SELECT id FROM competitor_ads WHERE external_id='stale'`)).rowCount, 0)
+    assert.equal((await inspectionPool.query(`SELECT 1 FROM competitor_analytics_snapshots WHERE organization_id='org-fence'`)).rowCount, 0)
     assert.equal((await workerPool.query(`SELECT app_finish_ad_sync_run_failure($1,$2,$3,'internal',1) AS changed`, [first.id, 'worker-a', first.fence_token])).rows[0]?.changed, false)
     const ledger = (await inspectionPool.query(`SELECT status,lease_owner,fence_token FROM competitor_ad_sync_runs WHERE id=$1`, [first.id])).rows[0]
     assert.equal(ledger.status, 'running')
@@ -96,6 +98,8 @@ test('a reclaimed run fences stale ad mutations and ledger completion', async ()
     }, validProvider, { runId: second.id, owner: 'worker-b', token: second.fence_token })
     assert.deepEqual(result, { inserted: 1, duplicates: 0, retired: 1, complete: true })
     assert.equal((await inspectionPool.query(`SELECT is_active FROM competitor_ads WHERE id='old-ad'`)).rows[0]?.is_active, false)
+    assert.deepEqual((await inspectionPool.query(`SELECT competitor_id,active_ad_count FROM competitor_analytics_snapshots WHERE organization_id='org-fence'`)).rows,
+      [{ competitor_id: 'competitor-fence', active_ad_count: 1 }])
     assert.equal((await inspectionPool.query(`SELECT status FROM competitor_ad_sync_runs WHERE id=$1`, [second.id])).rows[0]?.status, 'succeeded')
   })
 })

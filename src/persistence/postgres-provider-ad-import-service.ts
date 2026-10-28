@@ -66,7 +66,7 @@ export class PostgresProviderAdImportService {
     }
 
     return withVerifiedUserContext(this.pool, verifiedUserId, async (client) => {
-      if (!fence) await requireContext(client, context)
+      await lockProductImport(client, context, fence)
       let inserted = 0
       let duplicates = 0
       const seenAt = this.now().toISOString()
@@ -106,6 +106,8 @@ export class PostgresProviderAdImportService {
         retired = result.rowCount ?? 0
       }
 
+      await captureAnalyticsSnapshot(client, context, fence)
+
       if (fence) {
         const finished = await client.query<{ app_finish_ad_sync_run_success: boolean }>(
           'SELECT app_finish_ad_sync_run_success($1,$2,$3,$4,$5,$6)',
@@ -116,6 +118,29 @@ export class PostgresProviderAdImportService {
       return { inserted, duplicates, retired, complete }
     })
   }
+}
+
+async function lockProductImport(
+  client: SqlConnection,
+  context: Readonly<AdCollectionContext>,
+  fence?: { runId: string; owner: string; token: string },
+): Promise<void> {
+  if (fence) {
+    try {
+      await client.query('SELECT app_lock_scheduled_ingestion_product($1,$2,$3)', [fence.runId, fence.owner, fence.token])
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === '40001') {
+        throw new ConflictError('Scheduled sync lease was lost')
+      }
+      throw error
+    }
+    return
+  }
+  await requireContext(client, context)
+  await client.query(
+    'SELECT app_lock_ingestion_product($1,$2,$3)',
+    [context.organizationId, context.productId, context.competitorId],
+  )
 }
 
 function validateProviderName(value: unknown): string {
@@ -147,6 +172,31 @@ async function requireContext(client: SqlConnection, context: Readonly<AdCollect
     [context.organizationId, context.productId, context.competitorId],
   )
   if (result.rowCount !== 1) throw new ValidationError('Competitor does not belong to product')
+}
+
+async function captureAnalyticsSnapshot(
+  client: SqlConnection,
+  context: Readonly<AdCollectionContext>,
+  fence?: { runId: string; owner: string; token: string },
+): Promise<void> {
+  try {
+    if (fence) {
+      await client.query(
+        'SELECT app_capture_scheduled_ingestion_analytics_snapshot($1,$2,$3)',
+        [fence.runId, fence.owner, fence.token],
+      )
+    } else {
+      await client.query(
+        'SELECT app_capture_ingestion_analytics_snapshot($1,$2,$3)',
+        [context.organizationId, context.productId, context.competitorId],
+      )
+    }
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === '40001') {
+      throw new ConflictError('Scheduled sync lease was lost')
+    }
+    throw error
+  }
 }
 
 async function upsertScheduledAd(

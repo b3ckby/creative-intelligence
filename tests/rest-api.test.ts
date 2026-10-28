@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 
 import { DataType, newDb } from 'pg-mem'
 
-import { readPgMemMigration, readPgMemPoint3AdEvolution } from './helpers/pg-mem-migrations.ts'
+import { readPgMemMigration, readPgMemPoint3AdEvolution, registerPgMemPoint4AnalyticsCapture } from './helpers/pg-mem-migrations.ts'
 import type { FastifyRequest } from 'fastify'
 import { AuthenticationError, RateLimitError } from '../src/domain/errors.ts'
 import { buildApi } from '../src/http/build-api.ts'
@@ -17,6 +17,7 @@ async function testApi(
   trustedProxies?: string[],
 ) {
   const db = newDb()
+  registerPgMemPoint4AnalyticsCapture(db)
   db.public.registerFunction({ name: 'length', args: [DataType.text], returns: DataType.integer, implementation: (value: string) => value.length })
   db.public.registerFunction({ name: 'trim', args: [DataType.text], returns: DataType.text, implementation: (value: string) => value.trim() })
   db.public.registerFunction({ name: 'set_config', args: [DataType.text, DataType.text, DataType.bool], returns: DataType.text, implementation: (_key: string, value: string) => value })

@@ -27,6 +27,18 @@ Other adapters can implement the same contract:
 
 Provider adapters are responsible only for fetching and source-specific normalization. They must not write to storage directly. `AdLibraryService` owns tenant validation, deduplication, persistence, and import statistics.
 
+## Ingestion analytics snapshots
+
+Every successful manual or scheduled provider import captures analytics in the same PostgreSQL transaction as ad upserts, complete-snapshot retirement, and (for scheduled work) run success. Any ad, retirement, snapshot, or ledger failure rolls the whole transaction back; provider/validation failures happen before it and write neither ads nor analytics.
+
+- **Grain, scope, and concurrency:** one row per `(organization_id, competitor_id, UTC database day)`, using the existing primary key. An import for one active competitor recomputes every active competitor in that product because `scale_score` is product-relative. Manual and scheduled imports acquire the same transaction-scoped product advisory lock after authorization and before any ad mutation; concurrent imports for different competitors in one product therefore aggregate the preceding committed import instead of overwriting product-relative metrics from split transaction snapshots. Snapshot rows are written in `competitor_id` order. Archived products/competitors cannot trigger capture, and the composite tenant/product/competitor relationships remain database-enforced.
+- **Clock:** one `clock_timestamp()` value supplies every window boundary, activity duration, `captured_at`, and the UTC `snapshot_date`. Application or worker clocks do not date ingestion snapshots.
+- **Idempotency and replay:** the daily key is upserted, not appended. A same-day provider retry, duplicate reimport, scheduled retry, or replay refreshes the row from current durable ad state without creating history duplicates. A later UTC day creates the next historical row.
+- **Complete versus partial:** both successful forms capture the resulting durable state. A trusted complete Apify snapshot first retires missing ads only within its exact canonical provider scope; a partial/manual snapshot never infers absence and never retires missing ads. Analytics is captured after that decision, so it reflects the committed state.
+- **Fencing and privileges:** scheduled capture requires the same live run ID, lease owner, fence token, unexpired lease, enabled schedule, active scope, and authorized admin as scheduled ad mutation. A reclaimed/stale worker cannot write snapshots. The worker has no direct analytics-table privilege; it can invoke only the fenced `SECURITY DEFINER` capability. Runtime capture still requires tenant membership, and normal snapshot reads retain RLS.
+
+The analytics GET endpoint remains compatible: it computes and returns the same public-library momentum proxy and refreshes the same daily rows.
+
 Before enabling a network collector, it must include:
 
 - bounded pagination and item limits;

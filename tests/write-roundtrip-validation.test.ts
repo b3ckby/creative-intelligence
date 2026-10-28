@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 
 import { DataType, newDb } from 'pg-mem'
 
-import { readPgMemMigration, readPgMemPoint3AdEvolution } from './helpers/pg-mem-migrations.ts'
+import { readPgMemMigration, readPgMemPoint3AdEvolution, registerPgMemPoint4AnalyticsCapture } from './helpers/pg-mem-migrations.ts'
 import type { FastifyRequest } from 'fastify'
 import { buildApi } from '../src/http/build-api.ts'
 import { CreativeIntelligence } from '../src/creative-intelligence.ts'
@@ -14,6 +14,7 @@ import { decodeAdRow } from '../src/persistence/catalog-row-decoders.ts'
 
 async function testApi(ids = ['org-1', 'product-1', 'competitor-1', 'ad-1', 'brief-1']) {
   const db = newDb()
+  registerPgMemPoint4AnalyticsCapture(db)
   db.public.registerFunction({ name: 'length', args: [DataType.text], returns: DataType.integer, implementation: (value: string) => value.length })
   db.public.registerFunction({ name: 'trim', args: [DataType.text], returns: DataType.text, implementation: (value: string) => value.trim() })
   db.public.registerFunction({ name: 'set_config', args: [DataType.text, DataType.text, DataType.bool], returns: DataType.text, implementation: (_key: string, value: string) => value })

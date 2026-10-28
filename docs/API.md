@@ -94,7 +94,7 @@ All four schedule operations require a tenant administrator; ordinary members an
 - `GET /organizations/{organizationId}/products/{productId}/analytics/scaling`
 - `POST /organizations/{organizationId}/products/{productId}/ads/{adId}/creative-analysis`
 
-The scaling response is explicitly labeled a **Public Ad Library momentum proxy**. It is not spend, ROAS, or conversion performance. Reading it records one tenant-isolated daily snapshot per competitor. Creative analysis is versioned and fingerprinted, validates a fixed taxonomy, deduplicates the current version, and is disabled with `503` unless the server-side model credential is configured. The initial analysis uses copy and stored metadata only; it never fetches provider media URLs.
+The scaling response is explicitly labeled a **Public Ad Library momentum proxy**. It is not spend, ROAS, or conversion performance. Reading it refreshes one tenant-isolated daily snapshot per competitor. Successful manual and scheduled ingestion also refreshes that same durable daily snapshot grain transactionally from the persisted product state; see `AD_SOURCE_PROVIDER.md` for ingestion snapshot completeness, replay, clock, and atomicity rules. Creative analysis is versioned and fingerprinted, validates a fixed taxonomy, deduplicates the current version, and is disabled with `503` unless the server-side model credential is configured. The initial analysis uses copy and stored metadata only; it never fetches provider media URLs.
 
 ### Briefs and Iteration Map
 

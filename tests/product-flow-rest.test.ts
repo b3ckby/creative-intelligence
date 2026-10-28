@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises'
 import type { FastifyRequest } from 'fastify'
 import { DataType, newDb } from 'pg-mem'
 
-import { readPgMemMigration, readPgMemPoint3AdEvolution } from './helpers/pg-mem-migrations.ts'
+import { readPgMemMigration, readPgMemPoint3AdEvolution, registerPgMemPoint4AnalyticsCapture } from './helpers/pg-mem-migrations.ts'
 import { buildApi } from '../src/http/build-api.ts'
 
 async function testApi(ids: string[], beforeQuery?: (sql: string) => Promise<void>) {
@@ -14,6 +14,7 @@ async function testApi(ids: string[], beforeQuery?: (sql: string) => Promise<voi
   db.public.registerFunction({ name: 'trim', args: [DataType.text], returns: DataType.text, implementation: (value: string) => value.trim() })
   db.public.registerFunction({ name: 'set_config', args: [DataType.text, DataType.text, DataType.bool], returns: DataType.text, implementation: (_key: string, value: string) => value })
   db.public.registerFunction({ name: 'jsonb_typeof', args: [DataType.jsonb], returns: DataType.text, implementation: (value: unknown) => Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value })
+  registerPgMemPoint4AnalyticsCapture(db)
   const { Pool } = db.adapters.createPg()
   const pool = new Pool()
   await pool.query(await readFile(new URL('../migrations/001_initial.sql', import.meta.url), 'utf8'))

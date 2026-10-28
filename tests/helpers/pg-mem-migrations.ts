@@ -1,5 +1,39 @@
 import { readFile } from 'node:fs/promises'
 
+import { DataType, type IMemoryDb } from 'pg-mem'
+
+export function registerPgMemPoint4AnalyticsCapture(db: IMemoryDb): void {
+  db.public.registerFunction({
+    name: 'app_capture_ingestion_analytics_snapshot',
+    args: [DataType.text, DataType.text, DataType.text],
+    returns: DataType.integer,
+    allowNullArguments: true,
+    impure: true,
+    implementation: () => 0,
+  })
+  db.public.registerFunction({
+    name: 'app_lock_ingestion_product',
+    args: [DataType.text, DataType.text, DataType.text],
+    returns: DataType.bool,
+    impure: true,
+    implementation: () => true,
+  })
+  db.public.registerFunction({
+    name: 'app_lock_scheduled_ingestion_product',
+    args: [DataType.text, DataType.text, DataType.text],
+    returns: DataType.bool,
+    impure: true,
+    implementation: () => true,
+  })
+  db.public.registerFunction({
+    name: 'app_capture_scheduled_ingestion_analytics_snapshot',
+    args: [DataType.text, DataType.text, DataType.text],
+    returns: DataType.integer,
+    impure: true,
+    implementation: () => 0,
+  })
+}
+
 export async function readPgMemMigration(url: URL): Promise<string> {
   const sql = await readFile(url, 'utf8')
   return sql

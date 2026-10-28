@@ -39,7 +39,7 @@ Implemented modules:
 - Raw collection and normalized domain data are separate concepts.
 - Ads are deduplicated by organization, trusted provider-registry namespace, platform, and external provider ID.
 - Provider output is runtime-validated as a complete batch and cannot override trusted IDs or tenant ownership.
-- Tenant context is snapshotted and frozen before provider execution; repository batch writes are atomic.
+- Tenant context is snapshotted and frozen before provider execution; repository batch writes, complete-scope retirement, daily product-relative analytics capture, and scheduled success are atomic.
 - PostgreSQL composite foreign keys enforce organization ownership for products, competitors, ads, and brief references.
 - HTTP authentication is injected into `buildApi`; the library deliberately has no insecure header-based production default.
 - API errors are sanitized before returning storage or unexpected failures.
