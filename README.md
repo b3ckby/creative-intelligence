@@ -79,18 +79,19 @@ The browser MVP lives in `web/` and builds to `dist/web/`. It connects directly 
 
 ## PostgreSQL and HTTP
 
-Apply `migrations/001_initial.sql` through `migrations/007_creative_analysis.sql` in numeric order to an empty PostgreSQL database. Migrations `002` and `005` must run under a provisioning account allowed to create roles. The migrations create:
+Apply `migrations/001_initial.sql` through `migrations/009_scheduled_provider_sync.sql` in numeric order to an empty PostgreSQL database. Migrations `002`, `005`, and `009` must run under a provisioning account allowed to create or normalize roles. The migrations create four fixed cluster roles:
 
 - restricted `creative_intelligence_runtime` for application access;
 - non-login `creative_intelligence_rls_owner`, which has only schema usage, membership-table read access, and organization-row lock privileges plus `BYPASSRLS`, solely to own the security-definer policy helpers;
 - non-login `creative_intelligence_login_limiter_owner`, which alone owns the bounded staging-login table and security-definer claim/reset functions;
+- non-login `creative_intelligence_scheduled_worker`, which can execute only fenced scheduled-sync functions and has no direct tenant-table access;
 - forced row-level security policies and a database trigger that preserves at least one administrator.
 
-Never grant either owner role to the runtime role or application login. Production connections must assume `creative_intelligence_runtime` and must not use the migration owner or a superuser.
+Never grant either owner role to the runtime role or application login. Production API connections must assume `creative_intelligence_runtime` and must not use the migration owner or a superuser. Provision a separate login for scheduled work, grant it only `creative_intelligence_scheduled_worker`, and configure `AD_SYNC_WORKER_DATABASE_URL` so that connection assumes that group role. `AD_SYNC_WORKER_DATABASE_ROLE` is fixed to `creative_intelligence_scheduled_worker`; startup rejects worker logins that can assume runtime or application-owner roles. Keep the lease at least 30 seconds longer than `APIFY_TIMEOUT_MS` so validation and persistence can finish after collection. Keep both login passwords outside the repository and environment examples.
 
 ### Real PostgreSQL integration suite
 
-`npm run test:postgres` provisions an isolated database and unique login roles, applies all migrations, runs all application queries after assuming the restricted `creative_intelligence_runtime` role, and removes every temporary database and role in `finally`. The suite serializes provisioners with a PostgreSQL advisory lock because the migrations intentionally create three fixed cluster roles.
+`npm run test:postgres` provisions an isolated database and unique login roles, applies all migrations, runs all application queries after assuming the restricted `creative_intelligence_runtime` role, and removes every temporary database and role in `finally`. The suite serializes provisioners with a PostgreSQL advisory lock because the migrations intentionally create four fixed cluster roles.
 
 The harness has fail-closed safety gates:
 
@@ -98,7 +99,7 @@ The harness has fail-closed safety gates:
 - the provisioner URL must target the `postgres` maintenance database;
 - the connected server address is checked again after connection;
 - the provisioner must be a local superuser because PostgreSQL only permits a superuser to create the migration's `BYPASSRLS` helper role;
-- it refuses to run if any fixed application role (`creative_intelligence_runtime`, `creative_intelligence_rls_owner`, or `creative_intelligence_login_limiter_owner`) already exists, so it cannot modify an installed application cluster;
+- it refuses to run if any fixed application role (`creative_intelligence_runtime`, `creative_intelligence_rls_owner`, `creative_intelligence_login_limiter_owner`, or `creative_intelligence_scheduled_worker`) already exists, so it cannot modify an installed application cluster;
 - generated databases and login roles always use the `creative_intelligence_test_<random>` prefix.
 
 On a Linux development machine running as root, the harness safely detects the local service through `runuser -u postgres` and creates a short-lived provisioner login. Otherwise, set an explicit local-only provisioner URL:
@@ -154,6 +155,8 @@ Operational endpoints are intentionally unauthenticated and disclose no provider
 
 - `GET /health/live` — process liveness only; never accesses PostgreSQL;
 - `GET /health/ready` — bounded PostgreSQL probe; returns `200 {"status":"ready"}` or sanitized `503 {"status":"not_ready"}`.
+
+When scheduled sync is enabled, startup verifies the separate worker pool before readiness can succeed. Shutdown first stops new polls and waits for in-flight items, then closes Fastify and both pools. Poll/control-plane failures make worker readiness unhealthy; individual provider run failures are recorded and surfaced separately without taking readiness down.
 
 `SIGINT` and `SIGTERM` stop Fastify and close the PostgreSQL pool once. All business routes require an exact OIDC Bearer token; `x-user-id`, cookies, and query parameters are never production authentication sources.
 

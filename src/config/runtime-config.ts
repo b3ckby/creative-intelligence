@@ -35,6 +35,16 @@ export interface RuntimeConfig {
     maxConcurrency: number
     dailyLimit: number
   }
+  scheduledSync?: {
+    intervalMs: number
+    leaseSeconds: number
+    maxAttempts: number
+    backoffBaseMs: number
+    backoffMaxMs: number
+    batchSize: number
+    concurrency: number
+    workerDatabase: { url: string; expectedRole: string }
+  }
   apify: {
     apiToken: string
     timeoutMs: number
@@ -85,6 +95,7 @@ export function parseRuntimeConfig(environment: Readonly<Record<string, string |
     if (apifyApiToken.length < 10) throw new Error('invalid Apify API token')
     const stagingLogin = parseStagingLogin(environment)
     const creativeAnalysis = parseCreativeAnalysis(environment)
+    const scheduledSync = parseScheduledSync(environment)
     if (stagingLogin) {
       const subjectMaximum = oidc.subjectMaxLength ?? 128
       if (!oidc.algorithms.includes('RS256') || stagingLogin.subject.length > subjectMaximum) throw new Error('staging signer does not match OIDC verifier')
@@ -104,6 +115,7 @@ export function parseRuntimeConfig(environment: Readonly<Record<string, string |
       oidc,
       ...(stagingLogin ? { stagingLogin } : {}),
       ...(creativeAnalysis ? { creativeAnalysis } : {}),
+      ...(scheduledSync ? { scheduledSync } : {}),
       apify: {
         apiToken: apifyApiToken,
         timeoutMs: integer(environment, 'APIFY_TIMEOUT_MS', 100, 120_000),
@@ -117,6 +129,36 @@ export function parseRuntimeConfig(environment: Readonly<Record<string, string |
   } catch {
     throw new Error('Runtime configuration is invalid')
   }
+}
+
+function parseScheduledSync(environment: Readonly<Record<string, string | undefined>>): RuntimeConfig['scheduledSync'] {
+  const scheduledWorkerRole = 'creative_intelligence_scheduled_worker'
+  const enabled = environment.AD_SYNC_ENABLED
+  const names = ['AD_SYNC_INTERVAL_MS', 'AD_SYNC_LEASE_SECONDS', 'AD_SYNC_MAX_ATTEMPTS', 'AD_SYNC_BACKOFF_BASE_MS', 'AD_SYNC_BACKOFF_MAX_MS', 'AD_SYNC_BATCH_SIZE', 'AD_SYNC_CONCURRENCY', 'AD_SYNC_WORKER_DATABASE_URL', 'AD_SYNC_WORKER_DATABASE_ROLE']
+  if (enabled === undefined) {
+    if (names.some((name) => environment[name] !== undefined)) throw new Error('scheduled sync settings require explicit enablement')
+    return undefined
+  }
+  if (enabled !== 'true') throw new Error('invalid scheduled sync enablement')
+  const result = {
+    intervalMs: integer(environment, 'AD_SYNC_INTERVAL_MS', 100, 3_600_000),
+    leaseSeconds: integer(environment, 'AD_SYNC_LEASE_SECONDS', 10, 3_600),
+    maxAttempts: integer(environment, 'AD_SYNC_MAX_ATTEMPTS', 1, 20),
+    backoffBaseMs: integer(environment, 'AD_SYNC_BACKOFF_BASE_MS', 100, 3_600_000),
+    backoffMaxMs: integer(environment, 'AD_SYNC_BACKOFF_MAX_MS', 100, 86_400_000),
+    batchSize: integer(environment, 'AD_SYNC_BATCH_SIZE', 1, 100),
+    concurrency: integer(environment, 'AD_SYNC_CONCURRENCY', 1, 16),
+    workerDatabase: {
+      url: required(environment, 'AD_SYNC_WORKER_DATABASE_URL', 4_096),
+      expectedRole: required(environment, 'AD_SYNC_WORKER_DATABASE_ROLE', 63),
+    },
+  }
+  const workerUrl = new URL(result.workerDatabase.url)
+  if ((workerUrl.protocol !== 'postgres:' && workerUrl.protocol !== 'postgresql:') || workerUrl.hash
+      || result.workerDatabase.expectedRole !== scheduledWorkerRole
+      || result.backoffMaxMs < result.backoffBaseMs || result.concurrency > result.batchSize
+      || result.leaseSeconds * 1_000 < integer(environment, 'APIFY_TIMEOUT_MS', 100, 120_000) + 30_000) throw new Error('unsafe scheduled sync settings')
+  return result
 }
 
 function parseCreativeAnalysis(environment: Readonly<Record<string, string | undefined>>): RuntimeConfig['creativeAnalysis'] {

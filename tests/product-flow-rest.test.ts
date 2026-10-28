@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises'
 import type { FastifyRequest } from 'fastify'
 import { DataType, newDb } from 'pg-mem'
 
-import { readPgMemMigration } from './helpers/pg-mem-migrations.ts'
+import { readPgMemMigration, readPgMemPoint3AdEvolution } from './helpers/pg-mem-migrations.ts'
 import { buildApi } from '../src/http/build-api.ts'
 
 async function testApi(ids: string[], beforeQuery?: (sql: string) => Promise<void>) {
@@ -18,6 +18,7 @@ async function testApi(ids: string[], beforeQuery?: (sql: string) => Promise<voi
   const pool = new Pool()
   await pool.query(await readFile(new URL('../migrations/001_initial.sql', import.meta.url), 'utf8'))
   await pool.query(await readPgMemMigration(new URL('../migrations/006_ad_intelligence.sql', import.meta.url)))
+  await pool.query(await readPgMemPoint3AdEvolution())
   await pool.query(await readPgMemMigration(new URL('../migrations/008_brief_workflow.sql', import.meta.url)))
   const appPool = beforeQuery ? {
     query: pool.query.bind(pool),

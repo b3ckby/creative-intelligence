@@ -20,6 +20,8 @@ test('real PostgreSQL migrations enforce runtime RLS', async (t) => {
         ORDER BY table_name
       `)
       assert.deepEqual(tables.rows.map(({ table_name }) => table_name), [
+        'competitor_ad_sync_runs',
+        'competitor_ad_sync_schedules',
         'competitor_ads',
         'competitor_analytics_snapshots',
         'competitors',
@@ -41,8 +43,9 @@ test('real PostgreSQL migrations enforce runtime RLS', async (t) => {
       `, [[
         'organizations', 'organization_members', 'products', 'competitors', 'competitor_ads', 'creative_briefs', 'creative_brief_versions',
         'provider_sync_limits', 'creative_ad_analyses', 'creative_analysis_daily_usage', 'competitor_analytics_snapshots',
+        'competitor_ad_sync_schedules', 'competitor_ad_sync_runs',
       ]])
-      assert.equal(security.rowCount, 11)
+      assert.equal(security.rowCount, 13)
       assert.ok(security.rows.every(({ relrowsecurity, relforcerowsecurity }) => relrowsecurity && relforcerowsecurity))
     })
 

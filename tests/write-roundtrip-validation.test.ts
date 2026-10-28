@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 
 import { DataType, newDb } from 'pg-mem'
 
-import { readPgMemMigration } from './helpers/pg-mem-migrations.ts'
+import { readPgMemMigration, readPgMemPoint3AdEvolution } from './helpers/pg-mem-migrations.ts'
 import type { FastifyRequest } from 'fastify'
 import { buildApi } from '../src/http/build-api.ts'
 import { CreativeIntelligence } from '../src/creative-intelligence.ts'
@@ -22,6 +22,7 @@ async function testApi(ids = ['org-1', 'product-1', 'competitor-1', 'ad-1', 'bri
   const pool = new Pool()
   await pool.query(await readFile(new URL('../migrations/001_initial.sql', import.meta.url), 'utf8'))
   await pool.query(await readPgMemMigration(new URL('../migrations/006_ad_intelligence.sql', import.meta.url)))
+  await pool.query(await readPgMemPoint3AdEvolution())
   await pool.query(await readPgMemMigration(new URL('../migrations/008_brief_workflow.sql', import.meta.url)))
   const app = buildApi({
     pool,

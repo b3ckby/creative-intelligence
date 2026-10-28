@@ -6,7 +6,7 @@ import test from 'node:test'
 import type { FastifyInstance } from 'fastify'
 import { createProductionApp } from '../src/app.ts'
 import { parseRuntimeConfig } from '../src/config/runtime-config.ts'
-import { checkDatabaseReadiness, type RuntimeSqlPool } from '../src/persistence/postgres-pool.ts'
+import { checkDatabaseReadiness, verifyScheduledWorkerDatabase, type RuntimeSqlPool } from '../src/persistence/postgres-pool.ts'
 import { startProductionServer } from '../src/server.ts'
 
 const VALID_ENV = {
@@ -33,6 +33,31 @@ const VALID_ENV = {
   APIFY_MAX_CONCURRENCY: '2',
 }
 
+function safeRoleRow(expectedRole: string): Record<string, unknown> {
+  const scheduledWorker = expectedRole === 'creative_intelligence_scheduled_worker'
+  return {
+    current_user: expectedRole,
+    session_user: `${expectedRole}_login`,
+    rolsuper: false,
+    rolbypassrls: false,
+    rolcanlogin: false,
+    rolcreatedb: false,
+    rolcreaterole: false,
+    rolreplication: false,
+    session_rolsuper: false,
+    session_rolbypassrls: false,
+    session_rolcanlogin: true,
+    session_rolcreatedb: false,
+    session_rolcreaterole: false,
+    session_rolreplication: false,
+    can_assume_privileged_role: false,
+    can_assume_scheduled_worker: scheduledWorker,
+    can_assume_unexpected_role: false,
+    has_unsafe_direct_acl: false,
+    has_unsafe_owner: false,
+  }
+}
+
 test('production start executable is installed with production dependencies', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
     scripts?: Record<string, string>
@@ -53,6 +78,89 @@ test('runtime configuration fails closed when production authentication settings
 test('runtime configuration fails closed when Apify credentials are missing', () => {
   const { APIFY_API_TOKEN: _missing, ...environment } = VALID_ENV
   assert.throws(() => parseRuntimeConfig(environment), { message: 'Runtime configuration is invalid' })
+})
+
+test('scheduled sync config requires explicit enablement and bounded safe values', () => {
+  assert.equal(parseRuntimeConfig(VALID_ENV).scheduledSync, undefined)
+  assert.throws(() => parseRuntimeConfig({ ...VALID_ENV, AD_SYNC_INTERVAL_MS: '1000' }), { message: 'Runtime configuration is invalid' })
+  const enabled = parseRuntimeConfig({
+    ...VALID_ENV,
+    AD_SYNC_ENABLED: 'true', AD_SYNC_INTERVAL_MS: '5000', AD_SYNC_LEASE_SECONDS: '120',
+    AD_SYNC_MAX_ATTEMPTS: '4', AD_SYNC_BACKOFF_BASE_MS: '1000', AD_SYNC_BACKOFF_MAX_MS: '60000',
+    AD_SYNC_BATCH_SIZE: '10', AD_SYNC_CONCURRENCY: '2',
+    AD_SYNC_WORKER_DATABASE_URL: 'postgresql://worker:***@127.0.0.1:5432/creative_intelligence',
+    AD_SYNC_WORKER_DATABASE_ROLE: 'creative_intelligence_scheduled_worker',
+  }).scheduledSync
+  assert.deepEqual(enabled, { intervalMs: 5000, leaseSeconds: 120, maxAttempts: 4, backoffBaseMs: 1000, backoffMaxMs: 60000, batchSize: 10, concurrency: 2,
+    workerDatabase: { url: 'postgresql://worker:***@127.0.0.1:5432/creative_intelligence', expectedRole: 'creative_intelligence_scheduled_worker' } })
+  assert.throws(() => parseRuntimeConfig({ ...VALID_ENV, AD_SYNC_ENABLED: 'true', AD_SYNC_INTERVAL_MS: '1' }), { message: 'Runtime configuration is invalid' })
+  assert.throws(() => parseRuntimeConfig({ ...VALID_ENV, AD_SYNC_ENABLED: 'true', AD_SYNC_INTERVAL_MS: '5000', AD_SYNC_LEASE_SECONDS: '60', AD_SYNC_MAX_ATTEMPTS: '4', AD_SYNC_BACKOFF_BASE_MS: '1000', AD_SYNC_BACKOFF_MAX_MS: '60000', AD_SYNC_BATCH_SIZE: '10', AD_SYNC_CONCURRENCY: '2' }), { message: 'Runtime configuration is invalid' })
+  assert.throws(() => parseRuntimeConfig({ ...VALID_ENV, AD_SYNC_ENABLED: 'true', AD_SYNC_INTERVAL_MS: '5000', AD_SYNC_LEASE_SECONDS: '60', AD_SYNC_MAX_ATTEMPTS: '4', AD_SYNC_BACKOFF_BASE_MS: '1000', AD_SYNC_BACKOFF_MAX_MS: '60000', AD_SYNC_BATCH_SIZE: '10', AD_SYNC_CONCURRENCY: '2', AD_SYNC_WORKER_DATABASE_URL: 'postgresql://worker:***@127.0.0.1/db', AD_SYNC_WORKER_DATABASE_ROLE: 'creative_intelligence_scheduled_worker' }), { message: 'Runtime configuration is invalid' })
+  assert.throws(() => parseRuntimeConfig({ ...VALID_ENV, AD_SYNC_ENABLED: 'true', AD_SYNC_INTERVAL_MS: '5000', AD_SYNC_LEASE_SECONDS: '120', AD_SYNC_MAX_ATTEMPTS: '4', AD_SYNC_BACKOFF_BASE_MS: '1000', AD_SYNC_BACKOFF_MAX_MS: '60000', AD_SYNC_BATCH_SIZE: '10', AD_SYNC_CONCURRENCY: '2', AD_SYNC_WORKER_DATABASE_URL: 'postgresql://worker:***@127.0.0.1/db', AD_SYNC_WORKER_DATABASE_ROLE: 'some_other_worker' }), { message: 'Runtime configuration is invalid' })
+})
+
+test('documented scheduled defaults have a thirty-second post-provider lease margin', async () => {
+  const text = await readFile(new URL('../.env.example', import.meta.url), 'utf8')
+  const scheduledNames = new Set([
+    'AD_SYNC_ENABLED', 'AD_SYNC_INTERVAL_MS', 'AD_SYNC_LEASE_SECONDS', 'AD_SYNC_MAX_ATTEMPTS',
+    'AD_SYNC_BACKOFF_BASE_MS', 'AD_SYNC_BACKOFF_MAX_MS', 'AD_SYNC_BATCH_SIZE', 'AD_SYNC_CONCURRENCY',
+    'AD_SYNC_WORKER_DATABASE_URL', 'AD_SYNC_WORKER_DATABASE_ROLE',
+  ])
+  const environment: Record<string, string> = {}
+  for (const line of text.split('\n')) {
+    const match = /^(?:# )?([A-Z][A-Z0-9_]*)=(.*)$/u.exec(line)
+    if (match && (!line.startsWith('# ') || scheduledNames.has(match[1]!))) environment[match[1]!] = match[2]!
+  }
+  const parsed = parseRuntimeConfig(environment)
+  assert.equal(parsed.apify.timeoutMs, 120_000)
+  assert.equal(parsed.scheduledSync?.leaseSeconds, 180)
+  assert.throws(() => parseRuntimeConfig({ ...environment, AD_SYNC_LEASE_SECONDS: '149' }), {
+    message: 'Runtime configuration is invalid',
+  })
+})
+
+test('scheduled worker verification rejects arbitrary role membership and inspects exact login ACLs', async () => {
+  const queried: string[] = []
+  const pool = {
+    query: async (sql: string) => {
+      queried.push(sql)
+      return { rows: [{
+        ...safeRoleRow('creative_intelligence_scheduled_worker'),
+        can_assume_unexpected_role: true,
+      }], rowCount: 1 }
+    },
+    connect: async () => { throw new Error('not used') },
+    end: async () => undefined,
+  } as unknown as RuntimeSqlPool
+  await assert.rejects(() => verifyScheduledWorkerDatabase(pool, 2_000), {
+    message: 'Database startup validation failed',
+  })
+  assert.match(queried[0]!, /unexpected_role/u)
+  assert.match(queried[0]!, /aclexplode/u)
+  assert.match(queried[0]!, /grantee = login_role\.oid/u)
+})
+
+test('scheduled worker verification rejects application object ownership independently of ACLs', async () => {
+  const queried: string[] = []
+  const pool = {
+    query: async (sql: string) => {
+      queried.push(sql)
+      return { rows: [{
+        ...safeRoleRow('creative_intelligence_scheduled_worker'),
+        has_unsafe_owner: true,
+      }], rowCount: 1 }
+    },
+    connect: async () => { throw new Error('not used') },
+    end: async () => undefined,
+  } as unknown as RuntimeSqlPool
+  await assert.rejects(() => verifyScheduledWorkerDatabase(pool, 2_000), {
+    message: 'Database startup validation failed',
+  })
+  assert.match(queried[0]!, /datdba = login_role\.oid/u)
+  assert.match(queried[0]!, /nspowner = login_role\.oid/u)
+  assert.match(queried[0]!, /relowner = login_role\.oid/u)
+  assert.match(queried[0]!, /proowner = login_role\.oid/u)
+  assert.match(queried[0]!, /typowner = login_role\.oid/u)
 })
 
 test('runtime configuration rejects unsafe database, network, pool, and signing settings', () => {
@@ -168,7 +276,7 @@ test('production composition loads staging login secrets from files and enables 
     STAGING_LOGIN_MAX_CONCURRENCY: '2',
   }
   const pool = {
-    query: async () => ({ rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: false }], rowCount: 1 }),
+    query: async () => ({ rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: false, can_assume_forbidden_role: false }], rowCount: 1 }),
     connect: async () => { throw new Error('not used') },
     end: async () => undefined,
   } as unknown as RuntimeSqlPool
@@ -202,7 +310,7 @@ test('production composition loads staging login secrets from files and enables 
 test('startup rejects a database role mismatch and closes the pool', async () => {
   let ended = 0
   const pool = {
-    query: async () => ({ rows: [{ current_user: 'wrong_role', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: false }], rowCount: 1 }),
+    query: async () => ({ rows: [{ current_user: 'wrong_role', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: false, can_assume_forbidden_role: false }], rowCount: 1 }),
     connect: async () => { throw new Error('not used') },
     end: async () => { ended += 1 },
   } as unknown as RuntimeSqlPool
@@ -217,10 +325,10 @@ test('startup rejects a database role mismatch and closes the pool', async () =>
 test('startup rejects unavailable and privileged database roles with one fixed error', async () => {
   for (const query of [
     async () => { throw new Error('connect ECONNREFUSED postgresql://secret@private-host') },
-    async () => ({ rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: true, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: false }], rowCount: 1 }),
-    async () => ({ rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: true, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: false }], rowCount: 1 }),
-    async () => ({ rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: true, session_rolbypassrls: false, can_assume_privileged_role: false }], rowCount: 1 }),
-    async () => ({ rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: true, can_assume_privileged_role: false }], rowCount: 1 }),
+    async () => ({ rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: true, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: false, can_assume_forbidden_role: false }], rowCount: 1 }),
+    async () => ({ rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: true, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: false, can_assume_forbidden_role: false }], rowCount: 1 }),
+    async () => ({ rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: true, session_rolbypassrls: false, can_assume_privileged_role: false, can_assume_forbidden_role: false }], rowCount: 1 }),
+    async () => ({ rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: true, can_assume_privileged_role: false, can_assume_forbidden_role: false }], rowCount: 1 }),
     async () => ({ rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: true }], rowCount: 1 }),
   ]) {
     let ended = 0
@@ -243,7 +351,7 @@ test('liveness avoids the database while readiness uses a bounded sanitized prob
   const pool = {
     query: async (sql: string) => {
       if (sql.includes('pg_roles')) {
-        return { rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: false }], rowCount: 1 }
+        return { rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: false, can_assume_forbidden_role: false }], rowCount: 1 }
       }
       if (sql.includes('SELECT 1') && healthAvailable) return { rows: [{ ready: 1 }], rowCount: 1 }
       throw new Error('database private-host unavailable')
@@ -285,7 +393,7 @@ test('concurrent timed-out readiness probes coalesce instead of accumulating dat
   const pool = {
     query: async (sql: string) => {
       if (sql.includes('pg_roles')) {
-        return { rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: false }], rowCount: 1 }
+        return { rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: false, can_assume_forbidden_role: false }], rowCount: 1 }
       }
       readinessQueries += 1
       return await new Promise<never>(() => {})
@@ -324,6 +432,99 @@ test('standalone readiness cancels a stalled connection within its health deadli
   assert.equal(ends, 1)
 })
 
+test('scheduled production composition isolates pools and exposes poll failure readiness recovery', async () => {
+  const config = parseRuntimeConfig({
+    ...VALID_ENV,
+    AD_SYNC_ENABLED: 'true', AD_SYNC_INTERVAL_MS: '100', AD_SYNC_LEASE_SECONDS: '120', AD_SYNC_MAX_ATTEMPTS: '3',
+    AD_SYNC_BACKOFF_BASE_MS: '1000', AD_SYNC_BACKOFF_MAX_MS: '60000', AD_SYNC_BATCH_SIZE: '1', AD_SYNC_CONCURRENCY: '1',
+    AD_SYNC_WORKER_DATABASE_URL: 'postgresql://worker:***@127.0.0.1:5432/creative_intelligence',
+    AD_SYNC_WORKER_DATABASE_ROLE: 'creative_intelligence_scheduled_worker',
+  })
+  let pools = 0
+  let closes = 0
+  let polls = 0
+  const app = await createProductionApp(config, {
+    createPool: (database) => {
+      pools += 1
+      return {
+        query: async (sql: string) => {
+          if (sql.includes('pg_roles')) return { rows: [safeRoleRow(database.expectedRole)], rowCount: 1 }
+          if (sql.includes('app_claim_due_ad_sync_runs')) { if (++polls === 1) throw new Error('private tenant detail'); return { rows: [], rowCount: 0 } }
+          return { rows: [], rowCount: 0 }
+        },
+        connect: async () => { throw new Error('not used') },
+        end: async () => { closes += 1 },
+      } as unknown as RuntimeSqlPool
+    },
+    readinessCheck: async () => true,
+  })
+  assert.equal(pools, 2)
+  const failed = await app.inject({ method: 'GET', url: '/health/ready' })
+  assert.equal(failed.statusCode, 503)
+  while (polls < 2) await new Promise((resolve) => setTimeout(resolve, 20))
+  const recovered = await app.inject({ method: 'GET', url: '/health/ready' })
+  assert.equal(recovered.statusCode, 200)
+  await app.close()
+  assert.equal(closes, 2)
+})
+
+test('scheduled production composition closes both pools when the worker login has arbitrary membership', async () => {
+  const config = parseRuntimeConfig({
+    ...VALID_ENV,
+    AD_SYNC_ENABLED: 'true', AD_SYNC_INTERVAL_MS: '100', AD_SYNC_LEASE_SECONDS: '120', AD_SYNC_MAX_ATTEMPTS: '3',
+    AD_SYNC_BACKOFF_BASE_MS: '1000', AD_SYNC_BACKOFF_MAX_MS: '60000', AD_SYNC_BATCH_SIZE: '1', AD_SYNC_CONCURRENCY: '1',
+    AD_SYNC_WORKER_DATABASE_URL: 'postgresql://worker:***@127.0.0.1:5432/creative_intelligence',
+    AD_SYNC_WORKER_DATABASE_ROLE: 'creative_intelligence_scheduled_worker',
+  })
+  let closes = 0
+  await assert.rejects(() => createProductionApp(config, {
+    createPool: (database) => ({
+      query: async () => ({ rows: [{
+        ...safeRoleRow(database.expectedRole),
+        can_assume_unexpected_role: database.expectedRole === 'creative_intelligence_scheduled_worker',
+      }], rowCount: 1 }),
+      connect: async () => { throw new Error('not used') },
+      end: async () => { closes += 1 },
+    }) as unknown as RuntimeSqlPool,
+  }), { message: 'Database startup validation failed' })
+  assert.equal(closes, 2)
+})
+
+test('scheduled production composition reports sanitized run and poll failures externally', async () => {
+  const config = parseRuntimeConfig({
+    ...VALID_ENV,
+    AD_SYNC_ENABLED: 'true', AD_SYNC_INTERVAL_MS: '100', AD_SYNC_LEASE_SECONDS: '120', AD_SYNC_MAX_ATTEMPTS: '3',
+    AD_SYNC_BACKOFF_BASE_MS: '1000', AD_SYNC_BACKOFF_MAX_MS: '60000', AD_SYNC_BATCH_SIZE: '1', AD_SYNC_CONCURRENCY: '1',
+    AD_SYNC_WORKER_DATABASE_URL: 'postgresql://worker:tenant-secret@127.0.0.1:5432/creative_intelligence',
+    AD_SYNC_WORKER_DATABASE_ROLE: 'creative_intelligence_scheduled_worker',
+  })
+  let captured: { onRunError?: (failure: { category: 'run_failed'; at: string }) => void; onPollError?: (failure: { category: 'poll_failed' }) => void } = {}
+  const reports: unknown[] = []
+  const app = await createProductionApp(config, {
+    createPool: (database) => ({
+      query: async (sql: string) => sql.includes('pg_roles')
+        ? { rows: [safeRoleRow(database.expectedRole)], rowCount: 1 }
+        : { rows: [], rowCount: 0 },
+      connect: async () => { throw new Error('not used') },
+      end: async () => undefined,
+    }) as unknown as RuntimeSqlPool,
+    createScheduledWorker: (options) => {
+      captured = options
+      return { start: async () => undefined, stop: async () => undefined, state: () => ({ firstSuccessfulPollAt: null, lastSuccessfulPollAt: null, currentFailure: null, lastRunFailure: null }) } as never
+    },
+    reportScheduledWorkerError: (event) => { reports.push(event) },
+  })
+  assert.equal(app.log.level, 'info')
+  captured.onRunError?.({ category: 'run_failed', at: '2026-01-01T00:00:00.000Z', runId: 'tenant-run-secret', error: 'database secret' } as never)
+  captured.onPollError?.({ category: 'poll_failed', error: 'connection secret' } as never)
+  assert.deepEqual(reports, [
+    { event: 'scheduled_worker_error', category: 'run_failed' },
+    { event: 'scheduled_worker_error', category: 'poll_failed' },
+  ])
+  assert.doesNotMatch(JSON.stringify(reports), /tenant|run-secret|database|connection|2026/)
+  await app.close()
+})
+
 test('server binds configured address and graceful shutdown is idempotent', async () => {
   const calls: unknown[] = []
   let closes = 0
@@ -344,7 +545,7 @@ test('executable composition listens on a real socket and serves liveness', asyn
   const pool = {
     query: async (sql: string) => {
       if (sql.includes('pg_roles')) {
-        return { rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: false }], rowCount: 1 }
+        return { rows: [{ current_user: 'creative_intelligence_runtime', session_user: 'application_login', rolsuper: false, rolbypassrls: false, session_rolsuper: false, session_rolbypassrls: false, can_assume_privileged_role: false, can_assume_forbidden_role: false }], rowCount: 1 }
       }
       return { rows: [{ ready: 1 }], rowCount: 1 }
     },

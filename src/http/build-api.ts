@@ -24,6 +24,7 @@ import { PostgresIterationMapRepository } from '../persistence/postgres-iteratio
 import { PostgresManualAdImportService } from '../persistence/postgres-manual-ad-import-service.ts'
 import { PostgresProviderAdImportService } from '../persistence/postgres-provider-ad-import-service.ts'
 import { PostgresProviderSyncRateLimiter } from '../persistence/postgres-provider-sync-rate-limiter.ts'
+import { PostgresAdSyncScheduleService } from '../persistence/postgres-ad-sync-schedule-service.ts'
 import { PostgresOrganizationRepository, type SqlPool } from '../persistence/postgres-organization-repository.ts'
 import { cursorScope, decodeCursor, exactCursorTimestamp, pageFromRows, validateCursorSigningKey, type CursorSigningKey } from './pagination.ts'
 import { schemaFor } from './schemas.ts'
@@ -36,9 +37,11 @@ export interface BuildApiOptions {
   authenticate: (request: FastifyRequest) => Promise<string>
   cursorSigningKey: CursorSigningKey
   apify?: Omit<ApifyMetaAdsProviderConfig, 'facebookPageUrl'> & { fetch?: typeof fetch, maxConcurrency: number }
+  apifyGate?: ApifyRequestGate
   stagingLogin?: { login(password: string, remoteAddress: string): Promise<string> }
   stagingOrganizationId?: string
   trustedProxies?: string[]
+  logger?: boolean
   scaleAnalytics?: {
     get(actorUserId: string, organizationId: string, productId: string): Promise<{ label: string; generatedAt: string; items: CompetitorScaleMetrics[] }>
   }
@@ -55,7 +58,7 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     'canonical-javascript-timestamp': isCanonicalJavascriptTimestamp,
   }
   const app = Fastify({
-    logger: false,
+    logger: options.logger ?? false,
     trustProxy: options.trustedProxies ?? false,
     serializerOpts: { ajv: { formats: customFormats } },
     ajv: {
@@ -103,7 +106,8 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
   const manualAds = new PostgresManualAdImportService(options.pool, options.createId, options.now)
   const providerAds = new PostgresProviderAdImportService(options.pool, options.createId, options.now)
   const providerSyncRateLimiter = new PostgresProviderSyncRateLimiter(options.pool)
-  const apifyGate = options.apify ? new ApifyRequestGate(options.apify.maxConcurrency) : undefined
+  const apifyGate = options.apify ? (options.apifyGate ?? new ApifyRequestGate(options.apify.maxConcurrency)) : undefined
+  const adSyncSchedules = new PostgresAdSyncScheduleService(options.pool, options.createId)
   const apifySyncs = new Map<string, Promise<{ inserted: number; duplicates: number }>>()
   const briefs = new PostgresBriefRepository(options.pool, options.now, options.createId)
   const iterationMaps = new PostgresIterationMapRepository(options.pool)
@@ -306,6 +310,42 @@ export function buildApi(options: BuildApiOptions): FastifyInstance {
     const parent = includeArchived ? undefined : await catalog.findProduct(userId, organizationId, productId)
     if (!competitor || (!includeArchived && (competitor.archivedAt !== null || !parent || parent.archivedAt !== null))) throw new NotFoundError()
     return competitor
+  })
+
+  const scheduleIds = async (request: FastifyRequest) => ({
+    userId: await actor(request), organizationId: routeId(request, 'organizationId'),
+    productId: routeId(request, 'productId'), competitorId: routeId(request, 'competitorId'),
+  })
+  app.get('/organizations/:organizationId/products/:productId/competitors/:competitorId/ad-sync-schedule', { schema: schemaFor('getAdSyncSchedule') }, async (request) => {
+    queryParameters(request, [])
+    const ids = await scheduleIds(request)
+    return adSyncSchedules.get(ids.userId, ids.organizationId, ids.productId, ids.competitorId)
+  })
+  const replaceSchedule = async (request: FastifyRequest) => {
+    queryParameters(request, [])
+    const ids = await scheduleIds(request)
+    const body = exactRecord(request.body, ['intervalSeconds', 'enabled'])
+    if (!Number.isSafeInteger(body.intervalSeconds) || typeof body.enabled !== 'boolean') throw new ValidationError('Schedule is invalid')
+    return adSyncSchedules.upsert(ids.userId, ids.organizationId, ids.productId, ids.competitorId, body.intervalSeconds as number, body.enabled)
+  }
+  app.post('/organizations/:organizationId/products/:productId/competitors/:competitorId/ad-sync-schedule', { schema: schemaFor('upsertAdSyncSchedule') }, replaceSchedule)
+  app.patch('/organizations/:organizationId/products/:productId/competitors/:competitorId/ad-sync-schedule', { schema: schemaFor('updateAdSyncSchedule') }, async (request) => {
+    queryParameters(request, [])
+    const ids = await scheduleIds(request)
+    const body = exactRecord(request.body, ['intervalSeconds', 'enabled'])
+    if (Object.keys(body).length === 0
+      || (body.intervalSeconds !== undefined && !Number.isSafeInteger(body.intervalSeconds))
+      || (body.enabled !== undefined && typeof body.enabled !== 'boolean')) throw new ValidationError('Schedule is invalid')
+    return adSyncSchedules.patch(ids.userId, ids.organizationId, ids.productId, ids.competitorId, {
+      ...(body.intervalSeconds === undefined ? {} : { intervalSeconds: body.intervalSeconds as number }),
+      ...(body.enabled === undefined ? {} : { enabled: body.enabled as boolean }),
+    })
+  })
+  app.post('/organizations/:organizationId/products/:productId/competitors/:competitorId/ad-sync-schedule/disable', { schema: schemaFor('disableAdSyncSchedule') }, async (request) => {
+    queryParameters(request, [])
+    if (request.body !== undefined) throw new ValidationError('Request body is not allowed')
+    const ids = await scheduleIds(request)
+    return adSyncSchedules.disable(ids.userId, ids.organizationId, ids.productId, ids.competitorId)
   })
 
   app.post('/organizations/:organizationId/products/:productId/competitors/:competitorId/ads/manual-meta', { schema: schemaFor('importManualMetaAds') }, async (request) => {

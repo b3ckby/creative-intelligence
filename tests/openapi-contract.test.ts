@@ -19,6 +19,10 @@ const EXPECTED_OPERATIONS = [
   'POST /organizations/{organizationId}/products/{productId}/competitors',
   'GET /organizations/{organizationId}/products/{productId}/competitors',
   'GET /organizations/{organizationId}/products/{productId}/competitors/{competitorId}',
+  'GET /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ad-sync-schedule',
+  'POST /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ad-sync-schedule',
+  'PATCH /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ad-sync-schedule',
+  'POST /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ad-sync-schedule/disable',
   'POST /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/manual-meta',
   'POST /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/apify-meta/sync',
   'GET /organizations/{organizationId}/competitors/{competitorId}/ads',
@@ -177,6 +181,10 @@ test('operation contracts list only endpoint-reachable error statuses', () => {
   assert.deepEqual(Object.keys(byId.getProduct!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 500])
   assert.deepEqual(Object.keys(byId.updateProduct!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 413, 415, 500])
   assert.deepEqual(Object.keys(byId.syncApifyMetaAds!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 409, 413, 415, 500, 502, 503])
+  assert.deepEqual(Object.keys(byId.getAdSyncSchedule!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 500])
+  assert.deepEqual(Object.keys(byId.upsertAdSyncSchedule!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 409, 413, 415, 500])
+  assert.deepEqual(Object.keys(byId.updateAdSyncSchedule!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 413, 415, 500])
+  assert.deepEqual(Object.keys(byId.disableAdSyncSchedule!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 413, 415, 500])
   assert.deepEqual(Object.keys(byId.getScalingAnalytics!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 500])
   for (const operationId of ['createBriefFromAd', 'createManualBrief', 'listBriefs', 'getBrief', 'analyzeIterationMap']) {
     assert.equal(byId[operationId]!.schema.response[403], undefined, operationId)
@@ -212,4 +220,9 @@ test('package lifecycle checks generated contract drift and API guide documents 
     assert.match(guide, new RegExp(`^## ${heading}$`, 'm'))
   }
   assert.doesNotMatch(guide, /x-user-id|client_secret|postgresql:\/\//i)
+  for (const fragment of ['ad-sync-schedule', 'tenant administrator', 'partial', 'generated ID collision', 'worker readiness']) assert.match(guide, new RegExp(fragment, 'i'))
+  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8')
+  for (const fragment of ['009_scheduled_provider_sync.sql', 'four fixed cluster roles', 'creative_intelligence_scheduled_worker', 'AD_SYNC_WORKER_DATABASE_URL']) assert.match(readme, new RegExp(fragment, 'i'))
+  const environment = await readFile(new URL('../.env.example', import.meta.url), 'utf8')
+  for (const name of ['AD_SYNC_ENABLED', 'AD_SYNC_INTERVAL_MS', 'AD_SYNC_LEASE_SECONDS', 'AD_SYNC_MAX_ATTEMPTS', 'AD_SYNC_BACKOFF_BASE_MS', 'AD_SYNC_BACKOFF_MAX_MS', 'AD_SYNC_BATCH_SIZE', 'AD_SYNC_CONCURRENCY', 'AD_SYNC_WORKER_DATABASE_URL', 'AD_SYNC_WORKER_DATABASE_ROLE']) assert.match(environment, new RegExp(`^# ${name}=`, 'm'))
 })

@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 
 import { DataType, newDb } from 'pg-mem'
 
-import { readPgMemMigration } from './helpers/pg-mem-migrations.ts'
+import { readPgMemMigration, readPgMemPoint3AdEvolution } from './helpers/pg-mem-migrations.ts'
 import type { ManualMetaAdRecord } from '../src/ad-ingestion/manual-meta-ads-provider.ts'
 import type { AdSourceProvider, CollectedAd } from '../src/ad-ingestion/ad-source-provider.ts'
 import { ConflictError, ExternalProviderError } from '../src/domain/errors.ts'
@@ -30,6 +30,7 @@ async function database() {
   const pool = new Pool()
   await pool.query(await readFile(new URL('../migrations/001_initial.sql', import.meta.url), 'utf8'))
   await pool.query(await readPgMemMigration(new URL('../migrations/006_ad_intelligence.sql', import.meta.url)))
+  await pool.query(await readPgMemPoint3AdEvolution())
   await pool.query(`
     INSERT INTO organizations (id, name) VALUES ('org-1', 'One');
     INSERT INTO products (id, organization_id, name) VALUES ('product-1', 'org-1', 'Product');
@@ -159,6 +160,62 @@ test('generic provider validates the complete batch before any write', async () 
   await assert.rejects(imports.import('user-1', 'apify-meta-ads', { organizationId: 'org-1', productId: 'product-1', competitorId: 'competitor-1' }, provider), /Provider returned invalid data/)
   const invalidStored = await pool.query(`SELECT id FROM competitor_ads`)
   assert.equal(invalidStored.rowCount, 0)
+  await pool.end()
+})
+
+test('complete snapshots retire missing ads atomically and later upserts reactivate them', async () => {
+  const pool = await database()
+  let nextId = 0
+  let now = new Date('2026-10-26T00:00:00.000Z')
+  const imports = new PostgresProviderAdImportService(pool, () => `snapshot-${++nextId}`, () => now)
+  const context = { organizationId: 'org-1', productId: 'product-1', competitorId: 'competitor-1' }
+  const first: CollectedAd = { platform: 'meta', externalId: 'one', advertiserName: 'Orbit', body: 'One', callToAction: null, startedAt: '2026-10-01T00:00:00.000Z', isActive: true, mediaUrls: [], sourceUrl: 'https://example.com/one' }
+  const second = { ...first, externalId: 'two', body: 'Two', sourceUrl: 'https://example.com/two' }
+  const complete = (items: CollectedAd[]): AdSourceProvider => ({ collect: async () => items, collectSnapshot: async () => ({ items, completeness: 'complete', scopeKey: 'apify-meta-ads:v1:country=ALL;active=all' }) })
+
+  await imports.importWithDetails('user-1', 'apify-meta-ads', context, complete([first, second]))
+  now = new Date('2026-10-27T00:00:00.000Z')
+  assert.deepEqual(await imports.importWithDetails('user-1', 'apify-meta-ads', context, complete([first])), { inserted: 0, duplicates: 1, retired: 1, complete: true })
+  let missing = (await pool.query(`SELECT is_active, ended_at FROM competitor_ads WHERE external_id='two'`)).rows[0]
+  assert.equal(missing.is_active, false)
+  assert.equal(missing.ended_at.toISOString(), '2026-10-27T00:00:00.000Z')
+
+  now = new Date('2026-10-28T00:00:00.000Z')
+  await imports.importWithDetails('user-1', 'apify-meta-ads', context, complete([first, second]))
+  missing = (await pool.query(`SELECT is_active, ended_at FROM competitor_ads WHERE external_id='two'`)).rows[0]
+  assert.equal(missing.is_active, true)
+  assert.equal(missing.ended_at, null)
+  await pool.end()
+})
+
+test('complete snapshots retire only ads attested by the exact canonical scope', async () => {
+  const pool = await database()
+  let id = 0
+  const imports = new PostgresProviderAdImportService(pool, () => `scope-${++id}`, () => new Date('2026-10-27T00:00:00.000Z'))
+  const context = { organizationId: 'org-1', productId: 'product-1', competitorId: 'competitor-1' }
+  const item = (externalId: string): CollectedAd => ({ platform: 'meta', externalId, advertiserName: 'Orbit', body: externalId, callToAction: null, startedAt: '2026-10-01T00:00:00.000Z', isActive: true, mediaUrls: [], sourceUrl: `https://example.com/${externalId}` })
+  const complete = (scopeKey: string, items: CollectedAd[]): AdSourceProvider => ({ collect: async () => items, collectSnapshot: async () => ({ items, completeness: 'complete', scopeKey }) })
+  const allScope = 'apify-meta-ads:v1:country=ALL;active=all'
+  const usScope = 'apify-meta-ads:v1:country=US;active=active'
+  await imports.importWithDetails('user-1', 'apify-meta-ads', context, complete(allScope, [item('all-ad')]))
+  await imports.importWithDetails('user-1', 'apify-meta-ads', context, complete(usScope, [item('us-ad')]))
+  await imports.importWithDetails('user-1', 'apify-meta-ads', context, complete(usScope, []))
+  const rows = await pool.query(`SELECT external_id,is_active,snapshot_scope_key FROM competitor_ads ORDER BY external_id`)
+  assert.deepEqual(rows.rows.map((row: any) => [row.external_id, row.is_active, row.snapshot_scope_key]), [
+    ['all-ad', true, allScope], ['us-ad', false, usScope],
+  ])
+  await pool.end()
+})
+
+test('partial snapshots never retire missing ads', async () => {
+  const pool = await database()
+  let id = 0
+  const imports = new PostgresProviderAdImportService(pool, () => `partial-${++id}`, () => new Date('2026-10-26T00:00:00.000Z'))
+  const context = { organizationId: 'org-1', productId: 'product-1', competitorId: 'competitor-1' }
+  const item: CollectedAd = { platform: 'meta', externalId: 'kept', advertiserName: 'Orbit', body: 'One', callToAction: null, startedAt: '2026-10-01T00:00:00.000Z', isActive: true, mediaUrls: [], sourceUrl: 'https://example.com/one' }
+  await imports.importWithDetails('user-1', 'apify-meta-ads', context, { collect: async () => [item] })
+  await imports.importWithDetails('user-1', 'apify-meta-ads', context, { collect: async () => [] })
+  assert.equal((await pool.query(`SELECT is_active FROM competitor_ads WHERE external_id='kept'`)).rows[0].is_active, true)
   await pool.end()
 })
 

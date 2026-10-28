@@ -16,9 +16,22 @@ interface RoleRow extends Record<string, unknown> {
   session_user: string
   rolsuper: boolean
   rolbypassrls: boolean
+  rolcanlogin?: boolean
+  rolcreatedb?: boolean
+  rolcreaterole?: boolean
+  rolreplication?: boolean
   session_rolsuper: boolean
   session_rolbypassrls: boolean
+  session_rolcanlogin?: boolean
+  session_rolcreatedb?: boolean
+  session_rolcreaterole?: boolean
+  session_rolreplication?: boolean
   can_assume_privileged_role: boolean
+  can_assume_forbidden_role?: boolean
+  can_assume_scheduled_worker?: boolean
+  can_assume_unexpected_role?: boolean
+  has_unsafe_direct_acl?: boolean
+  has_unsafe_owner?: boolean
 }
 
 export function createPostgresPool(config: RuntimeConfig['database']): RuntimeSqlPool {
@@ -114,6 +127,188 @@ export async function verifyRuntimeDatabase(
         || role.rolsuper !== false || role.rolbypassrls !== false
         || role.session_rolsuper !== false || role.session_rolbypassrls !== false
         || role.can_assume_privileged_role !== false) {
+      throw new Error('unsafe database role')
+    }
+  } catch {
+    throw new Error('Database startup validation failed')
+  }
+}
+
+export async function verifyScheduledWorkerDatabase(pool: RuntimeSqlPool, timeoutMs: number): Promise<void> {
+  try {
+    const result = await withTimeout(
+      boundedQuery<RoleRow>(
+        pool,
+        `SELECT current_user,
+                session_user,
+                active_role.rolsuper,
+                active_role.rolbypassrls,
+                active_role.rolcanlogin,
+                active_role.rolcreatedb,
+                active_role.rolcreaterole,
+                active_role.rolreplication,
+                login_role.rolsuper AS session_rolsuper,
+                login_role.rolbypassrls AS session_rolbypassrls,
+                login_role.rolcanlogin AS session_rolcanlogin,
+                login_role.rolcreatedb AS session_rolcreatedb,
+                login_role.rolcreaterole AS session_rolcreaterole,
+                login_role.rolreplication AS session_rolreplication,
+                EXISTS (
+                  SELECT 1
+                    FROM pg_catalog.pg_roles AS privileged_role
+                   WHERE (privileged_role.rolsuper OR privileged_role.rolbypassrls)
+                     AND (
+                       pg_catalog.pg_has_role(current_user, privileged_role.oid, 'MEMBER')
+                       OR pg_catalog.pg_has_role(session_user, privileged_role.oid, 'MEMBER')
+                     )
+                ) AS can_assume_privileged_role,
+                pg_catalog.pg_has_role(
+                  login_role.oid,
+                  scheduled_worker_role.oid,
+                  'MEMBER'
+                ) AS can_assume_scheduled_worker,
+                EXISTS (
+                  SELECT 1
+                    FROM pg_catalog.pg_roles AS unexpected_role
+                   WHERE unexpected_role.oid <> login_role.oid
+                     AND unexpected_role.oid <> scheduled_worker_role.oid
+                     AND pg_catalog.pg_has_role(login_role.oid, unexpected_role.oid, 'MEMBER')
+                ) AS can_assume_unexpected_role,
+                EXISTS (
+                  SELECT 1
+                    FROM pg_catalog.pg_database AS database_acl_owner
+                    CROSS JOIN LATERAL pg_catalog.aclexplode(
+                      COALESCE(database_acl_owner.datacl, pg_catalog.acldefault('d', database_acl_owner.datdba))
+                    ) AS database_acl
+                   WHERE database_acl_owner.datname = pg_catalog.current_database()
+                     AND database_acl.grantee = login_role.oid
+                     AND (database_acl.privilege_type <> 'CONNECT' OR database_acl.is_grantable)
+                  UNION ALL
+                  SELECT 1
+                    FROM pg_catalog.pg_namespace AS namespace_acl_owner
+                    CROSS JOIN LATERAL pg_catalog.aclexplode(
+                      COALESCE(namespace_acl_owner.nspacl, pg_catalog.acldefault('n', namespace_acl_owner.nspowner))
+                    ) AS namespace_acl
+                   WHERE namespace_acl_owner.nspname <> 'information_schema'
+                     AND namespace_acl_owner.nspname !~ '^pg_'
+                     AND namespace_acl.grantee = login_role.oid
+                     AND (namespace_acl.privilege_type <> 'USAGE' OR namespace_acl.is_grantable)
+                  UNION ALL
+                  SELECT 1
+                    FROM pg_catalog.pg_class AS relation_acl_owner
+                    JOIN pg_catalog.pg_namespace AS relation_namespace
+                      ON relation_namespace.oid = relation_acl_owner.relnamespace
+                    CROSS JOIN LATERAL pg_catalog.aclexplode(
+                      COALESCE(
+                        relation_acl_owner.relacl,
+                        pg_catalog.acldefault(
+                          CASE WHEN relation_acl_owner.relkind = 'S' THEN 's'::"char" ELSE 'r'::"char" END,
+                          relation_acl_owner.relowner
+                        )
+                      )
+                    ) AS relation_acl
+                   WHERE relation_namespace.nspname <> 'information_schema'
+                     AND relation_namespace.nspname !~ '^pg_'
+                     AND relation_acl_owner.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+                     AND relation_acl.grantee = login_role.oid
+                  UNION ALL
+                  SELECT 1
+                    FROM pg_catalog.pg_attribute AS column_acl_owner
+                    JOIN pg_catalog.pg_class AS column_relation
+                      ON column_relation.oid = column_acl_owner.attrelid
+                    JOIN pg_catalog.pg_namespace AS column_namespace
+                      ON column_namespace.oid = column_relation.relnamespace
+                    CROSS JOIN LATERAL pg_catalog.aclexplode(column_acl_owner.attacl) AS column_acl
+                   WHERE column_namespace.nspname <> 'information_schema'
+                     AND column_namespace.nspname !~ '^pg_'
+                     AND column_relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+                     AND column_acl_owner.attnum > 0
+                     AND NOT column_acl_owner.attisdropped
+                     AND column_acl.grantee = login_role.oid
+                  UNION ALL
+                  SELECT 1
+                    FROM pg_catalog.pg_proc AS function_acl_owner
+                    JOIN pg_catalog.pg_namespace AS function_namespace
+                      ON function_namespace.oid = function_acl_owner.pronamespace
+                    CROSS JOIN LATERAL pg_catalog.aclexplode(
+                      COALESCE(function_acl_owner.proacl, pg_catalog.acldefault('f', function_acl_owner.proowner))
+                    ) AS function_acl
+                   WHERE function_namespace.nspname <> 'information_schema'
+                     AND function_namespace.nspname !~ '^pg_'
+                     AND function_acl.grantee = login_role.oid
+                  UNION ALL
+                  SELECT 1
+                    FROM pg_catalog.pg_type AS type_acl_owner
+                    JOIN pg_catalog.pg_namespace AS type_namespace
+                      ON type_namespace.oid = type_acl_owner.typnamespace
+                    CROSS JOIN LATERAL pg_catalog.aclexplode(
+                      COALESCE(type_acl_owner.typacl, pg_catalog.acldefault('T', type_acl_owner.typowner))
+                    ) AS type_acl
+                   WHERE type_namespace.nspname <> 'information_schema'
+                     AND type_namespace.nspname !~ '^pg_'
+                     AND type_acl.grantee = login_role.oid
+                ) AS has_unsafe_direct_acl,
+                EXISTS (
+                  SELECT 1
+                    FROM pg_catalog.pg_database AS database_owner
+                   WHERE database_owner.datname = pg_catalog.current_database()
+                     AND database_owner.datdba = login_role.oid
+                  UNION ALL
+                  SELECT 1
+                    FROM pg_catalog.pg_namespace AS namespace_owner
+                   WHERE namespace_owner.nspname <> 'information_schema'
+                     AND namespace_owner.nspname !~ '^pg_'
+                     AND namespace_owner.nspowner = login_role.oid
+                  UNION ALL
+                  SELECT 1
+                    FROM pg_catalog.pg_class AS relation_owner
+                    JOIN pg_catalog.pg_namespace AS relation_owner_namespace
+                      ON relation_owner_namespace.oid = relation_owner.relnamespace
+                   WHERE relation_owner_namespace.nspname <> 'information_schema'
+                     AND relation_owner_namespace.nspname !~ '^pg_'
+                     AND relation_owner.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+                     AND relation_owner.relowner = login_role.oid
+                  UNION ALL
+                  SELECT 1
+                    FROM pg_catalog.pg_proc AS function_owner
+                    JOIN pg_catalog.pg_namespace AS function_owner_namespace
+                      ON function_owner_namespace.oid = function_owner.pronamespace
+                   WHERE function_owner_namespace.nspname <> 'information_schema'
+                     AND function_owner_namespace.nspname !~ '^pg_'
+                     AND function_owner.proowner = login_role.oid
+                  UNION ALL
+                  SELECT 1
+                    FROM pg_catalog.pg_type AS type_owner
+                    JOIN pg_catalog.pg_namespace AS type_owner_namespace
+                      ON type_owner_namespace.oid = type_owner.typnamespace
+                   WHERE type_owner_namespace.nspname <> 'information_schema'
+                     AND type_owner_namespace.nspname !~ '^pg_'
+                     AND type_owner.typowner = login_role.oid
+                ) AS has_unsafe_owner
+           FROM pg_catalog.pg_roles AS active_role
+           JOIN pg_catalog.pg_roles AS login_role ON login_role.rolname = session_user
+           JOIN pg_catalog.pg_roles AS scheduled_worker_role
+             ON scheduled_worker_role.rolname = 'creative_intelligence_scheduled_worker'
+          WHERE active_role.rolname = current_user`,
+        timeoutMs,
+      ),
+      timeoutMs,
+    )
+    const role = result.rows[0]
+    if (result.rows.length !== 1 || !role || role.current_user !== 'creative_intelligence_scheduled_worker'
+        || typeof role.session_user !== 'string' || role.session_user.length === 0
+        || role.session_user === role.current_user
+        || role.rolsuper !== false || role.rolbypassrls !== false
+        || role.rolcanlogin !== false || role.rolcreatedb !== false
+        || role.rolcreaterole !== false || role.rolreplication !== false
+        || role.session_rolsuper !== false || role.session_rolbypassrls !== false
+        || role.session_rolcanlogin !== true || role.session_rolcreatedb !== false
+        || role.session_rolcreaterole !== false || role.session_rolreplication !== false
+        || role.can_assume_privileged_role !== false
+        || role.can_assume_scheduled_worker !== true
+        || role.can_assume_unexpected_role !== false
+        || role.has_unsafe_direct_acl !== false
+        || role.has_unsafe_owner !== false) {
       throw new Error('unsafe database role')
     }
   } catch {

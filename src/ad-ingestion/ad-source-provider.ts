@@ -39,6 +39,16 @@ export interface CollectedAdMedia {
   order: number
 }
 
+export interface AdCollectionSnapshot {
+  readonly items: CollectedAd[]
+  readonly completeness: 'complete' | 'partial'
+  /** Canonical bounded identity for every upstream population filter. */
+  readonly scopeKey?: string
+}
+
 export interface AdSourceProvider {
+  /** Backwards-compatible partial collection API. */
   collect(context: Readonly<AdCollectionContext>): Promise<CollectedAd[]>
+  /** Providers may explicitly attest that a bounded collection completed. */
+  collectSnapshot?(context: Readonly<AdCollectionContext>): Promise<AdCollectionSnapshot>
 }

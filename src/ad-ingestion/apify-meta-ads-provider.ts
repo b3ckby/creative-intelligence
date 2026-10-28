@@ -96,7 +96,11 @@ export class ApifyMetaAdsProvider implements AdSourceProvider {
     this.beforeActorStart = dependencies.beforeActorStart ?? (async () => undefined)
   }
 
-  async collect(_context: Readonly<AdCollectionContext>): Promise<CollectedAd[]> {
+  async collect(context: Readonly<AdCollectionContext>): Promise<CollectedAd[]> {
+    return (await this.collectSnapshot(context)).items
+  }
+
+  async collectSnapshot(_context: Readonly<AdCollectionContext>): Promise<{ items: CollectedAd[]; completeness: 'complete' | 'partial'; scopeKey: string }> {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.timeoutMs)
     try {
@@ -137,7 +141,13 @@ export class ApifyMetaAdsProvider implements AdSourceProvider {
           if (seen.has(item.externalId)) throw new Error('duplicate ad id')
           seen.add(item.externalId)
         }
-        return items
+        // Count below the requested limit is the actor's only completeness signal;
+        // exact-limit and otherwise ambiguous collections remain partial.
+        return {
+          items,
+          completeness: items.length < this.limit ? 'complete' as const : 'partial' as const,
+          scopeKey: `apify-meta-ads:v1:country=${this.countryCode};active=${this.activeStatus}`,
+        }
       }, controller.signal)
     } catch (error) {
       if (error instanceof ConflictError) throw error

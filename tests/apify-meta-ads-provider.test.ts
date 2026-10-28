@@ -89,6 +89,15 @@ test('Apify provider calls the Muppets actor with header auth and normalizes rec
   }])
 })
 
+test('Apify marks a limit-sized collection partial because truncation cannot prove completeness', async () => {
+  const provider = new ApifyMetaAdsProvider({ apiToken: 'secret-test-token', facebookPageUrl: 'https://facebook.com/orbit', limit: 10 }, {
+    fetch: async () => jsonResponse(Array.from({ length: 10 }, (_, index) => ({ ...actorRecord, ad_archive_id: `bounded-${index}` }))),
+  })
+  const snapshot = await provider.collectSnapshot(context)
+  assert.equal(snapshot.items.length, 10)
+  assert.equal(snapshot.completeness, 'partial')
+})
+
 test('Apify provider preserves expanded metadata and structured media without inventing zero values', async () => {
   const provider = providerWithResponse([{
     ...actorRecord,
@@ -321,7 +330,7 @@ test('shared gate bounds concurrent actor runs without retrying them', async () 
   const gate = new ApifyRequestGate(1)
   let started = 0
   const releases: Array<() => void> = []
-  const provider = new ApifyMetaAdsProvider({
+  const makeProvider = () => new ApifyMetaAdsProvider({
     apiToken: 'secret-test-token',
     facebookPageUrl: 'https://www.facebook.com/orbit',
   }, {
@@ -332,9 +341,11 @@ test('shared gate bounds concurrent actor runs without retrying them', async () 
       return jsonResponse([])
     },
   })
+  const manualProvider = makeProvider()
+  const scheduledProvider = makeProvider()
 
-  const first = provider.collect(context)
-  const second = provider.collect(context)
+  const first = manualProvider.collect(context)
+  const second = scheduledProvider.collect(context)
   await new Promise((resolve) => setImmediate(resolve))
   assert.equal(started, 1)
   releases.shift()?.()

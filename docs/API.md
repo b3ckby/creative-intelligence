@@ -74,6 +74,10 @@ Archiving is non-destructive: products and all descendant competitors, ads, and 
 
 ### Ads
 
+- `GET /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ad-sync-schedule`
+- `POST /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ad-sync-schedule`
+- `PATCH /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ad-sync-schedule`
+- `POST /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ad-sync-schedule/disable`
 - `POST /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/manual-meta`
 - `POST /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/apify-meta/sync`
 - `GET /organizations/{organizationId}/competitors/{competitorId}/ads`
@@ -82,6 +86,8 @@ Archiving is non-destructive: products and all descendant competitors, ads, and 
 The organization ad collection supports `productId`, `competitorId`, `isActive`, and `provider` filters.
 
 Ad responses include nullable public-library metadata, structured media/card ordering, and nullable impression/spend bounds. Missing provider values remain `null`; they are never converted to zero.
+
+All four schedule operations require a tenant administrator; ordinary members and outsiders receive `403`. `GET` and disable return `404` when the exact schedule does not exist. `POST` is a full create-or-replace body with both `intervalSeconds` and `enabled`. `PATCH` is a true partial update: it accepts one or both fields, preserves omitted values atomically, and rejects empty or unknown objects. Enabling a disabled schedule assigns the current administrator and makes it due using the database clock. Disabling through either PATCH or the bodyless disable endpoint atomically cancels and fences active runs. Any body on the disable endpoint, including `{}`, is rejected. A generated ID collision for a schedule is not retried and returns sanitized `409`.
 
 ### Analytics and creative analysis
 
@@ -104,3 +110,5 @@ Request and response field limits, enums, required properties, and exact respons
 
 - `GET /health/live` returns `200 {"status":"ok"}` and never accesses PostgreSQL.
 - `GET /health/ready` returns `200 {"status":"ready"}` or `503 {"status":"not_ready"}` after a bounded, isolated PostgreSQL probe.
+
+With scheduled synchronization enabled, worker readiness also requires a successful control-plane poll. Per-item provider/business failures are durably finalized and surfaced as a separate sanitized run-failure signal; they do not make worker readiness unhealthy. Shutdown stops polling, waits for in-flight runs, and then closes the dedicated worker pool.

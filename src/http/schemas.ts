@@ -96,6 +96,10 @@ const AUTHORIZATION_OPERATIONS = new Set([
   'createCompetitor',
   'listCompetitors',
   'getCompetitor',
+  'getAdSyncSchedule',
+  'upsertAdSyncSchedule',
+  'updateAdSyncSchedule',
+  'disableAdSyncSchedule',
   'importManualMetaAds',
   'syncApifyMetaAds',
   'listCompetitorAds',
@@ -105,12 +109,13 @@ const AUTHORIZATION_OPERATIONS = new Set([
   'updateBrief',
   'listBriefVersions',
 ])
-const NOT_FOUND_OPERATIONS = new Set(['getProduct', 'updateProduct', 'archiveProduct', 'restoreProduct', 'getCompetitor', 'getBrief', 'updateBrief', 'listBriefVersions', 'syncApifyMetaAds', 'getScalingAnalytics', 'analyzeCreative'])
+const NOT_FOUND_OPERATIONS = new Set(['getProduct', 'updateProduct', 'archiveProduct', 'restoreProduct', 'getCompetitor', 'getAdSyncSchedule', 'upsertAdSyncSchedule', 'updateAdSyncSchedule', 'disableAdSyncSchedule', 'getBrief', 'updateBrief', 'listBriefVersions', 'syncApifyMetaAds', 'getScalingAnalytics', 'analyzeCreative'])
 const CONFLICT_OPERATIONS = new Set([
   'createOrganization',
   'addOrganizationMember',
   'createProduct',
   'createCompetitor',
+  'upsertAdSyncSchedule',
   'importManualMetaAds',
   'syncApifyMetaAds',
   'createBriefFromAd',
@@ -157,6 +162,19 @@ const competitor: JsonSchema = strictObject({
   archivedAt: nullableTimestamp,
   createdAt: timestamp,
 })
+const adSyncSchedule: JsonSchema = strictObject({
+  id: identifier, organizationId: identifier, productId: identifier, competitorId: identifier,
+  providerName: { type: 'string', enum: ['apify-meta-ads'] }, actorUserId: identifier,
+  enabled: { type: 'boolean' }, intervalSeconds: { type: 'integer', minimum: 60, maximum: 604800 },
+  nextRunAt: timestamp, lastRunAt: nullableTimestamp,
+})
+const adSyncScheduleBody: JsonSchema = strictObject({
+  intervalSeconds: { type: 'integer', minimum: 60, maximum: 604800 }, enabled: { type: 'boolean' },
+})
+const adSyncSchedulePatchBody: JsonSchema = {
+  ...strictObject({ intervalSeconds: { type: 'integer', minimum: 60, maximum: 604800 }, enabled: { type: 'boolean' } }, []),
+  minProperties: 1,
+}
 const adMedia: JsonSchema = strictObject({
   kind: { type: 'string', enum: ['image', 'video'] }, sourceUrl: httpsUrl, posterUrl: { anyOf: [httpsUrl, { type: 'null' }] },
   cardIndex: { anyOf: [{ type: 'integer', minimum: 0, maximum: 49 }, { type: 'null' }] }, order: { type: 'integer', minimum: 0, maximum: 49 },
@@ -354,6 +372,10 @@ export const API_CONTRACTS: readonly ApiContract[] = [
   route('POST', '/organizations/:organizationId/products/:productId/competitors', '/organizations/{organizationId}/products/{productId}/competitors', 'createCompetitor', 'Create a competitor', 'Competitors', { params: params('organizationId', 'productId'), querystring: noQuery, body: strictObject({ name: normalizedText(300), metaPageUrl: { anyOf: [httpsUrl, { type: 'null' }] } }, ['name']) }, 201, competitor),
   route('GET', '/organizations/:organizationId/products/:productId/competitors', '/organizations/{organizationId}/products/{productId}/competitors', 'listCompetitors', 'List competitors', 'Competitors', { params: params('organizationId', 'productId'), querystring: paginationQuery() }, 200, page(competitor)),
   route('GET', '/organizations/:organizationId/products/:productId/competitors/:competitorId', '/organizations/{organizationId}/products/{productId}/competitors/{competitorId}', 'getCompetitor', 'Get a competitor', 'Competitors', { params: params('organizationId', 'productId', 'competitorId'), querystring: detailQuery }, 200, competitor),
+  route('GET', '/organizations/:organizationId/products/:productId/competitors/:competitorId/ad-sync-schedule', '/organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ad-sync-schedule', 'getAdSyncSchedule', 'Inspect the competitor ad synchronization schedule', 'Ads', { params: params('organizationId', 'productId', 'competitorId'), querystring: noQuery }, 200, adSyncSchedule),
+  route('POST', '/organizations/:organizationId/products/:productId/competitors/:competitorId/ad-sync-schedule', '/organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ad-sync-schedule', 'upsertAdSyncSchedule', 'Create or replace the competitor ad synchronization schedule', 'Ads', { params: params('organizationId', 'productId', 'competitorId'), querystring: noQuery, body: adSyncScheduleBody }, 200, adSyncSchedule),
+  route('PATCH', '/organizations/:organizationId/products/:productId/competitors/:competitorId/ad-sync-schedule', '/organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ad-sync-schedule', 'updateAdSyncSchedule', 'Partially update the competitor ad synchronization schedule', 'Ads', { params: params('organizationId', 'productId', 'competitorId'), querystring: noQuery, body: adSyncSchedulePatchBody }, 200, adSyncSchedule),
+  route('POST', '/organizations/:organizationId/products/:productId/competitors/:competitorId/ad-sync-schedule/disable', '/organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ad-sync-schedule/disable', 'disableAdSyncSchedule', 'Disable and fence competitor ad synchronization work', 'Ads', { params: params('organizationId', 'productId', 'competitorId'), querystring: noQuery }, 200, adSyncSchedule),
   route('POST', '/organizations/:organizationId/products/:productId/competitors/:competitorId/ads/manual-meta', '/organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/manual-meta', 'importManualMetaAds', 'Import Meta ads manually', 'Ads', { params: params('organizationId', 'productId', 'competitorId'), querystring: noQuery, body: strictObject({ records: { type: 'array', minItems: 1, maxItems: 1_000, items: manualAdRecord } }) }, 200, strictObject({ inserted: { type: 'integer', minimum: 0 }, duplicates: { type: 'integer', minimum: 0 } })),
   route('POST', '/organizations/:organizationId/products/:productId/competitors/:competitorId/ads/apify-meta/sync', '/organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/apify-meta/sync', 'syncApifyMetaAds', 'Synchronize Meta ads through Apify', 'Ads', { params: params('organizationId', 'productId', 'competitorId'), querystring: noQuery }, 200, strictObject({ inserted: { type: 'integer', minimum: 0 }, duplicates: { type: 'integer', minimum: 0 } })),
   route('GET', '/organizations/:organizationId/competitors/:competitorId/ads', '/organizations/{organizationId}/competitors/{competitorId}/ads', 'listCompetitorAds', 'List ads for a competitor', 'Ads', { params: params('organizationId', 'competitorId'), querystring: paginationQuery() }, 200, page(ad)),

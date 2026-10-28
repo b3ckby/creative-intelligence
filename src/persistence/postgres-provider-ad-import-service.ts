@@ -20,6 +20,17 @@ export class PostgresProviderAdImportService {
     contextInput: AdCollectionContext,
     provider: AdSourceProvider,
   ): Promise<{ inserted: number; duplicates: number }> {
+    const { inserted, duplicates } = await this.importWithDetails(verifiedUserId, providerNameInput, contextInput, provider)
+    return { inserted, duplicates }
+  }
+
+  async importWithDetails(
+    verifiedUserId: string,
+    providerNameInput: string,
+    contextInput: AdCollectionContext,
+    provider: AdSourceProvider,
+    fence?: { runId: string; owner: string; token: string },
+  ): Promise<{ inserted: number; duplicates: number; retired: number; complete: boolean }> {
     const providerName = validateProviderName(providerNameInput)
     const context = Object.freeze({
       organizationId: validateIdentifier(contextInput.organizationId, 'Organization ID'),
@@ -27,8 +38,20 @@ export class PostgresProviderAdImportService {
       competitorId: validateIdentifier(contextInput.competitorId, 'Competitor ID'),
     })
     let collected: unknown
+    let complete = false
+    let scopeKey: string | null = null
     try {
-      collected = await provider.collect(context)
+      if (provider.collectSnapshot) {
+        const snapshot = await provider.collectSnapshot(context)
+        collected = snapshot.items
+        if (snapshot.scopeKey !== undefined && (typeof snapshot.scopeKey !== 'string' || snapshot.scopeKey.length < 1 || snapshot.scopeKey.length > 256 || /[\p{Cc}\p{Cf}]/u.test(snapshot.scopeKey))) {
+          throw new ValidationError('Provider returned invalid data')
+        }
+        complete = snapshot.completeness === 'complete' && providerName === 'apify-meta-ads' && snapshot.scopeKey !== undefined
+        scopeKey = complete ? snapshot.scopeKey! : null
+      } else {
+        collected = await provider.collect(context)
+      }
     } catch (error) {
       if (error instanceof ValidationError || error instanceof ConflictError) throw error
       throw new ExternalProviderError()
@@ -43,7 +66,7 @@ export class PostgresProviderAdImportService {
     }
 
     return withVerifiedUserContext(this.pool, verifiedUserId, async (client) => {
-      await requireContext(client, context)
+      if (!fence) await requireContext(client, context)
       let inserted = 0
       let duplicates = 0
       const seenAt = this.now().toISOString()
@@ -51,7 +74,9 @@ export class PostgresProviderAdImportService {
       for (const item of items) {
         const proposedId = validateIdentifier(this.createId(), 'Generated ID')
         const ingestionToken = randomUUID()
-        const saved = await upsertAd(client, proposedId, ingestionToken, providerName, context, item, seenAt)
+        const saved = fence
+          ? await upsertScheduledAd(client, fence, proposedId, ingestionToken, item, scopeKey)
+          : await upsertAd(client, proposedId, ingestionToken, providerName, context, item, seenAt, scopeKey)
         if (!saved || saved.product_id !== context.productId || saved.competitor_id !== context.competitorId) {
           throw new ConflictError('Provider ad ID already belongs to another product or competitor')
         }
@@ -59,7 +84,36 @@ export class PostgresProviderAdImportService {
         else duplicates += 1
       }
 
-      return { inserted, duplicates }
+      let retired = 0
+      if (complete && fence) {
+        const result = await client.query<{ retired: number }>(
+          'SELECT app_retire_scheduled_competitor_ads($1,$2,$3,$4,$5) AS retired',
+          [fence.runId, fence.owner, fence.token, scopeKey, items.map(({ platform, externalId }) => `${platform}:${externalId}`)],
+        )
+        retired = result.rows[0]?.retired ?? 0
+      } else if (complete) {
+        const result = await client.query(
+          `UPDATE competitor_ads
+             SET is_active = false,
+                 ended_at = CASE WHEN started_at > $5::timestamptz THEN started_at ELSE $5::timestamptz END
+           WHERE organization_id = $1 AND product_id = $2 AND competitor_id = $3
+             AND provider_name = $4 AND is_active = true
+             AND snapshot_scope_key = $6
+             AND NOT ((platform || ':' || external_id) = ANY($7::text[]))`,
+          [context.organizationId, context.productId, context.competitorId, providerName, seenAt, scopeKey,
+            items.map(({ platform, externalId }) => `${platform}:${externalId}`)],
+        )
+        retired = result.rowCount ?? 0
+      }
+
+      if (fence) {
+        const finished = await client.query<{ app_finish_ad_sync_run_success: boolean }>(
+          'SELECT app_finish_ad_sync_run_success($1,$2,$3,$4,$5,$6)',
+          [fence.runId, fence.owner, fence.token, inserted, duplicates, retired],
+        )
+        if (finished.rows[0]?.app_finish_ad_sync_run_success !== true) throw new ConflictError('Scheduled sync lease was lost')
+      }
+      return { inserted, duplicates, retired, complete }
     })
   }
 }
@@ -95,6 +149,28 @@ async function requireContext(client: SqlConnection, context: Readonly<AdCollect
   if (result.rowCount !== 1) throw new ValidationError('Competitor does not belong to product')
 }
 
+async function upsertScheduledAd(
+  client: SqlConnection,
+  fence: { runId: string; owner: string; token: string },
+  id: string,
+  ingestionToken: string,
+  item: CollectedAd,
+  scopeKey: string | null,
+): Promise<{ id: string; ingestion_token: string; product_id: string; competitor_id: string } | undefined> {
+  try {
+    const result = await client.query<{ id: string; ingestion_token: string; product_id: string; competitor_id: string }>(
+      'SELECT * FROM app_upsert_scheduled_competitor_ad($1,$2,$3,$4,$5,$6::jsonb,$7)',
+      [fence.runId, fence.owner, fence.token, id, ingestionToken, JSON.stringify(item), scopeKey],
+    )
+    return result.rows[0]
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === '40001') {
+      throw new ConflictError('Scheduled sync lease was lost')
+    }
+    throw error
+  }
+}
+
 async function upsertAd(
   client: SqlConnection,
   id: string,
@@ -103,6 +179,7 @@ async function upsertAd(
   context: Readonly<AdCollectionContext>,
   item: CollectedAd,
   seenAt: string,
+  scopeKey: string | null,
 ): Promise<{ id: string; ingestion_token: string; product_id: string; competitor_id: string } | undefined> {
   const result = await client.query<{ id: string; ingestion_token: string; product_id: string; competitor_id: string }>(
     `INSERT INTO competitor_ads (
@@ -110,10 +187,10 @@ async function upsertAd(
       external_id, page_id, advertiser_name, body, headline, description, call_to_action,
       display_format, ad_type, started_at, ended_at, is_active, publisher_platforms,
       impressions_lower_bound, impressions_upper_bound, spend_lower_bound, spend_upper_bound,
-      currency, media, media_urls, source_url, first_seen_at, last_seen_at
+      currency, media, media_urls, source_url, first_seen_at, last_seen_at, snapshot_scope_key
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-      $17, $18, $19, $20::jsonb, $21, $22, $23, $24, $25, $26::jsonb, $27::jsonb, $28, $29, $29
+      $17, $18, $19, $20::jsonb, $21, $22, $23, $24, $25, $26::jsonb, $27::jsonb, $28, $29, $29, $30
     )
     ON CONFLICT (organization_id, provider_name, platform, external_id)
     DO UPDATE SET
@@ -137,7 +214,8 @@ async function upsertAd(
       media = EXCLUDED.media,
       media_urls = EXCLUDED.media_urls,
       source_url = EXCLUDED.source_url,
-      last_seen_at = EXCLUDED.last_seen_at
+      last_seen_at = EXCLUDED.last_seen_at,
+      snapshot_scope_key = CASE WHEN EXCLUDED.snapshot_scope_key IS NULL THEN competitor_ads.snapshot_scope_key ELSE EXCLUDED.snapshot_scope_key END
     WHERE competitor_ads.product_id = EXCLUDED.product_id
       AND competitor_ads.competitor_id = EXCLUDED.competitor_id
     RETURNING competitor_ads.id, competitor_ads.ingestion_token, competitor_ads.product_id, competitor_ads.competitor_id`,
@@ -150,7 +228,7 @@ async function upsertAd(
       item.impressionsLowerBound ?? null, item.impressionsUpperBound ?? null,
       item.spendLowerBound ?? null, item.spendUpperBound ?? null, item.currency ?? null,
       item.media == null ? null : JSON.stringify(item.media), JSON.stringify(item.mediaUrls),
-      item.sourceUrl, seenAt,
+      item.sourceUrl, seenAt, scopeKey,
     ],
   )
   return result.rows[0]

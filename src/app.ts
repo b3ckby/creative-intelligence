@@ -1,18 +1,24 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 
+import { ApifyMetaAdsProvider, ApifyRequestGate } from './ad-ingestion/apify-meta-ads-provider.ts'
+
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 import { createOidcAuthenticator, type OidcAuthenticatorDependencies } from './auth/oidc-authenticator.ts'
 import { StagingPasswordLogin, type StagingLoginAttemptLimiter } from './auth/staging-password-login.ts'
+import { AuthorizationError } from './domain/errors.ts'
 import type { RuntimeConfig } from './config/runtime-config.ts'
 import { buildApi } from './http/build-api.ts'
 import { GeminiCreativeTagger } from './creative-analysis/gemini-creative-tagger.ts'
 import { schemaFor } from './http/schemas.ts'
-import { checkDatabaseReadiness, createPostgresPool, verifyRuntimeDatabase, type RuntimeSqlPool } from './persistence/postgres-pool.ts'
+import { checkDatabaseReadiness, createPostgresPool, verifyRuntimeDatabase, verifyScheduledWorkerDatabase, type RuntimeSqlPool } from './persistence/postgres-pool.ts'
 import { PostgresStagingLoginRateLimiter } from './persistence/postgres-staging-login-rate-limiter.ts'
 import { PostgresScaleAnalyticsService } from './persistence/postgres-scale-analytics-service.ts'
 import { PostgresCreativeAnalysisService } from './persistence/postgres-creative-analysis-service.ts'
+import { PostgresProviderAdImportService } from './persistence/postgres-provider-ad-import-service.ts'
+import { PostgresScheduledAdSyncService, type ClaimedAdSyncRun } from './persistence/postgres-scheduled-ad-sync-service.ts'
+import { ScheduledProviderSyncWorker } from './scheduling/scheduled-provider-sync-worker.ts'
 import { withVerifiedUserReadContext } from './persistence/verified-user-context.ts'
 
 export interface ProductionAppDependencies extends OidcAuthenticatorDependencies {
@@ -23,6 +29,8 @@ export interface ProductionAppDependencies extends OidcAuthenticatorDependencies
   readSecretFile?: (path: string) => Promise<string>
   createStagingLoginRateLimiter?: (pool: RuntimeSqlPool, config: { maxAttempts: number, attemptWindowMs: number }) => StagingLoginAttemptLimiter
   verifyStagingMembership?: (pool: RuntimeSqlPool, userId: string, organizationId: string) => Promise<boolean>
+  createScheduledWorker?: (options: ConstructorParameters<typeof ScheduledProviderSyncWorker<ClaimedAdSyncRun>>[0]) => ScheduledProviderSyncWorker<ClaimedAdSyncRun>
+  reportScheduledWorkerError?: (event: { event: 'scheduled_worker_error'; category: 'poll_failed' | 'run_failed' }) => void
 }
 
 export async function createProductionApp(
@@ -30,6 +38,7 @@ export async function createProductionApp(
   dependencies: ProductionAppDependencies = {},
 ): Promise<FastifyInstance> {
   const pool = (dependencies.createPool ?? createPostgresPool)(config.database)
+  let workerPool: RuntimeSqlPool | undefined
   try {
     await verifyRuntimeDatabase(pool, config.database.expectedRole, config.database.connectTimeoutMs)
     const oidcDependencies = Object.fromEntries(Object.entries({
@@ -39,6 +48,7 @@ export async function createProductionApp(
     }).filter(([, value]) => value !== undefined)) as OidcAuthenticatorDependencies
     const authenticate = createOidcAuthenticator(config.oidc, oidcDependencies)
     const now = dependencies.now ?? (() => new Date())
+    const createId = dependencies.createId ?? randomUUID
     const readSecretFile = dependencies.readSecretFile ?? (async (path: string) => await readFile(path, 'utf8'))
     let stagingLogin: StagingPasswordLogin | undefined
     let stagingOrganizationId: string | undefined
@@ -93,13 +103,15 @@ export async function createProductionApp(
       })
       creativeAnalysis = new PostgresCreativeAnalysisService(pool, tagger, now, config.creativeAnalysis.dailyLimit)
     }
+    const apifyGate = new ApifyRequestGate(config.apify.maxConcurrency)
     const app = buildApi({
       pool,
       authenticate,
       trustedProxies: config.trustedProxies,
+      logger: true,
       ...(stagingLogin && stagingOrganizationId ? { stagingLogin, stagingOrganizationId } : {}),
       cursorSigningKey: config.cursorSigningKey,
-      createId: dependencies.createId ?? randomUUID,
+      createId,
       now,
       scaleAnalytics: new PostgresScaleAnalyticsService(pool, now),
       ...(creativeAnalysis ? { creativeAnalysis } : {}),
@@ -107,7 +119,52 @@ export async function createProductionApp(
         ...config.apify,
         ...(dependencies.fetch ? { fetch: dependencies.fetch } : {}),
       },
+      apifyGate,
     })
+    let scheduledWorker: ScheduledProviderSyncWorker<ClaimedAdSyncRun> | undefined
+    if (config.scheduledSync) {
+      const settings = config.scheduledSync
+      workerPool = (dependencies.createPool ?? createPostgresPool)({
+        ...config.database, url: settings.workerDatabase.url, expectedRole: settings.workerDatabase.expectedRole,
+      })
+      await verifyScheduledWorkerDatabase(workerPool, config.database.connectTimeoutMs)
+      const imports = new PostgresProviderAdImportService(workerPool, createId, now)
+      const scheduled = new PostgresScheduledAdSyncService(
+        workerPool, imports, randomUUID(), settings,
+        async (run) => {
+          const pageUrl = await withVerifiedUserReadContext(pool, run.actor_user_id, async (connection) => {
+            const result = await connection.query<{ meta_page_url: string | null }>(
+              `SELECT c.meta_page_url FROM competitors c
+               JOIN products p ON p.organization_id=c.organization_id AND p.id=c.product_id
+               WHERE c.organization_id=$1 AND c.product_id=$2 AND c.id=$3
+                 AND c.archived_at IS NULL AND p.archived_at IS NULL`,
+              [run.organization_id, run.product_id, run.competitor_id],
+            )
+            return result.rows[0]?.meta_page_url
+          })
+          if (!pageUrl) throw new AuthorizationError('Scheduled competitor or actor is unavailable')
+          return new ApifyMetaAdsProvider({ ...config.apify, facebookPageUrl: pageUrl }, {
+            ...(dependencies.fetch ? { fetch: dependencies.fetch } : {}),
+            gate: apifyGate,
+          })
+        },
+      )
+      const reportScheduledWorkerError = dependencies.reportScheduledWorkerError
+        ?? ((event: { event: 'scheduled_worker_error'; category: 'poll_failed' | 'run_failed' }) => { app.log.error(event) })
+      const options = {
+        intervalMs: settings.intervalMs,
+        concurrency: settings.concurrency,
+        batchSize: settings.batchSize,
+        poll: async (batchSize: number) => await scheduled.claim(batchSize),
+        run: async (run: ClaimedAdSyncRun) => await scheduled.run(run),
+        onPollError: () => { reportScheduledWorkerError({ event: 'scheduled_worker_error', category: 'poll_failed' }) },
+        onRunError: () => { reportScheduledWorkerError({ event: 'scheduled_worker_error', category: 'run_failed' }) },
+      }
+      scheduledWorker = dependencies.createScheduledWorker
+        ? dependencies.createScheduledWorker(options)
+        : new ScheduledProviderSyncWorker(options)
+      app.addHook('onReady', async () => { void scheduledWorker?.start() })
+    }
     let readinessProbe: Promise<boolean> | undefined
     const checkReadiness = dependencies.readinessCheck ?? (async () => await checkDatabaseReadiness(config.database))
     const ready = (): Promise<boolean> => {
@@ -119,15 +176,18 @@ export async function createProductionApp(
 
     app.get('/health/live', { schema: schemaFor('getLiveness') }, async () => ({ status: 'ok' }))
     app.get('/health/ready', { schema: schemaFor('getReadiness') }, async (_request, reply) => {
-      const isReady = await ready()
+      const workerState = scheduledWorker?.state()
+      const workerReady = !workerState || (workerState.firstSuccessfulPollAt !== null && workerState.currentFailure === null)
+      const isReady = workerReady && await ready()
       return reply.code(isReady ? 200 : 503).send({ status: isReady ? 'ready' : 'not_ready' })
     })
     app.addHook('onClose', async () => {
-      await pool.end()
+      await scheduledWorker?.stop()
+      await Promise.all([pool.end(), workerPool?.end()])
     })
     return app
   } catch (error) {
-    await pool.end().catch(() => undefined)
+    await Promise.all([pool.end().catch(() => undefined), workerPool?.end().catch(() => undefined)])
     throw error
   }
 }
