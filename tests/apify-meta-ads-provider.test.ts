@@ -158,6 +158,14 @@ test('Apify provider preserves expanded metadata and structured media without in
   })
 })
 
+test('Apify treats an empty unavailable currency as missing metadata', async () => {
+  const provider = providerWithResponse([{ ...actorRecord, currency: '', spend: null }])
+
+  const [ad] = await provider.collect(context)
+
+  assert.equal(ad?.currency, null)
+})
+
 test('Apify provider preserves card positions when cards reuse the same media URL', async () => {
   const shared = 'https://cdn.example.test/shared.jpg'
   const provider = providerWithResponse([{ ...actorRecord, snapshot: {

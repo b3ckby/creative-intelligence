@@ -391,7 +391,7 @@ function optionalNonNegativeNumber(value: unknown): number | null {
   return result
 }
 function optionalCurrency(value: unknown): string | null {
-  if (value === undefined || value === null) return null
+  if (value === undefined || value === null || value === '') return null
   if (typeof value !== 'string' || !/^[A-Z]{3}$/u.test(value)) throw new Error('bad currency')
   return value
 }
