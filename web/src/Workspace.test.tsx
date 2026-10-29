@@ -842,6 +842,20 @@ describe('Creative Intelligence workspace', () => {
     expect(styles).toMatch(/\.card-workflow-actions\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/su)
   })
 
+  it('uses one neutral functional design system across the workspace', () => {
+    const styles = readFileSync('web/src/styles.css', 'utf8')
+    expect(styles).toContain('/* Minimal functional design system */')
+    expect(styles).toMatch(/--canvas:\s*#f7f7f8;/u)
+    expect(styles).toMatch(/--surface:\s*#ffffff;/u)
+    expect(styles).toMatch(/--accent:\s*#2563eb;/u)
+    expect(styles).toMatch(/\.rail\s*\{[^}]*background:\s*var\(--surface\)[^}]*border-right:\s*1px solid var\(--line\)/su)
+    expect(styles).toMatch(/\.primary-button\s*\{[^}]*background:\s*var\(--accent\)[^}]*border-radius:\s*6px/su)
+    expect(styles).toMatch(/\.paper-panel,\s*\.ink-panel,\s*\.panel-card,\s*\.analytics-panel,\s*\.review-card\s*\{[^}]*background:\s*var\(--surface\)[^}]*box-shadow:\s*none/su)
+    expect(styles).toMatch(/\.inspiration-card,\s*\.winning-card,\s*\.ad-card\s*\{[^}]*transform:\s*none[^}]*box-shadow:\s*none/su)
+    expect(styles).toMatch(/\.map-results\s*\{[^}]*color:\s*var\(--text\)[^}]*background:\s*var\(--surface\)/su)
+    expect(styles).toMatch(/@media \(max-width:\s*800px\)[\s\S]*?\.access-panel\s*\{[^}]*order:\s*-1/su)
+  })
+
   it('opens a complete creative detail dialog from an ad card', async () => {
     const client = api()
     render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
