@@ -833,6 +833,15 @@ describe('Creative Intelligence workspace', () => {
     expect(styles).toMatch(/\.ad-visual video[^}]*height:\s*auto/su)
   })
 
+  it('keeps filter controls and ad actions in stable responsive grids', () => {
+    const styles = readFileSync('web/src/styles.css', 'utf8')
+    expect(styles).toMatch(/\.filter-bar\s*\{[^}]*grid-template-columns:\s*repeat\(6,\s*minmax\(0,\s*1fr\)\)/su)
+    expect(styles).toMatch(/\.filter-search\s*\{[^}]*grid-column:\s*span 2/su)
+    expect(styles).toMatch(/\.checkbox-label input\s*\{[^}]*width:\s*auto/su)
+    expect(styles).toMatch(/\.card-utility-actions\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/su)
+    expect(styles).toMatch(/\.card-workflow-actions\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/su)
+  })
+
   it('opens a complete creative detail dialog from an ad card', async () => {
     const client = api()
     render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)

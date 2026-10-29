@@ -965,7 +965,7 @@ function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, a
     <section className="surface">
       <SurfaceHeading eyebrow="Competitive evidence" title="Ad Library" />
       <div className="filter-bar">
-        <form onSubmit={(event) => { event.preventDefault(); apply({ search: query.trim() || undefined }) }}>
+        <form className="filter-search" onSubmit={(event) => { event.preventDefault(); apply({ search: query.trim() || undefined }) }}>
           <label>Search creatives<input aria-label="Search creatives" type="search" value={query} maxLength={200} placeholder="Copy, CTA, advertiser" onChange={(event) => setQuery(event.target.value)} /></label>
           <button className="secondary-button" type="submit">Apply search</button>
         </form>
@@ -1001,7 +1001,20 @@ function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, a
             <div className="ad-visual"><AdCreative ad={ad} /></div>
             <div className="ad-copy"><p>{ad.body || 'Visual creative without body copy.'}</p></div>
             <div className="ad-meta"><span>{formatDate(ad.startedAt)}</span><span>{ad.callToAction ?? 'No CTA'}</span></div>
-            <div className="card-actions"><a href={ad.sourceUrl} target="_blank" rel="noreferrer">Source ↗</a><button aria-label={`View creative details for ${ad.advertiserName}`} onClick={() => onInspect(ad)}>View</button><button aria-label={ad.bookmarked ? `Remove bookmark from ${ad.advertiserName}` : `Bookmark ${ad.advertiserName}`} disabled={pendingBookmarkAdIds.has(ad.id)} onClick={() => void onBookmark(ad)}>{ad.bookmarked ? 'Saved' : 'Save'}</button>{hasTrustedMirror(ad) ? <button aria-label={`Save ${ad.advertiserName} to Winning Ads`} onClick={() => void onSaveWinning(ad)}>Winning Ads</button> : <span className="unavailable-note">Winning Ads unavailable until trusted media mirror completes.</span>}<button disabled={pendingBriefAdIds.has(ad.id)} onClick={() => onCreateBrief(ad)}>{pendingBriefAdIds.has(ad.id) ? 'Creating…' : 'Create brief'}</button><button aria-label={`AI brief for ${ad.advertiserName}`} disabled={pendingBriefAdIds.has(ad.id)} onClick={() => onCreateAiBrief(ad)}>{pendingBriefAdIds.has(ad.id) ? 'Creating AI brief…' : 'AI brief'}</button></div>
+            <div className="card-actions">
+              <div className="card-utility-actions">
+                <a href={ad.sourceUrl} target="_blank" rel="noreferrer">Source ↗</a>
+                <button aria-label={`View creative details for ${ad.advertiserName}`} onClick={() => onInspect(ad)}>View</button>
+                <button aria-label={ad.bookmarked ? `Remove bookmark from ${ad.advertiserName}` : `Bookmark ${ad.advertiserName}`} disabled={pendingBookmarkAdIds.has(ad.id)} onClick={() => void onBookmark(ad)}>{ad.bookmarked ? 'Saved' : 'Save'}</button>
+              </div>
+              {hasTrustedMirror(ad)
+                ? <button className="winning-action" aria-label={`Save ${ad.advertiserName} to Winning Ads`} onClick={() => void onSaveWinning(ad)}>Winning Ads</button>
+                : <span className="unavailable-note">Winning Ads unavailable until trusted media mirror completes.</span>}
+              <div className="card-workflow-actions">
+                <button disabled={pendingBriefAdIds.has(ad.id)} onClick={() => onCreateBrief(ad)}>{pendingBriefAdIds.has(ad.id) ? 'Creating…' : 'Create brief'}</button>
+                <button aria-label={`AI brief for ${ad.advertiserName}`} disabled={pendingBriefAdIds.has(ad.id)} onClick={() => onCreateAiBrief(ad)}>{pendingBriefAdIds.has(ad.id) ? 'Creating AI brief…' : 'AI brief'}</button>
+              </div>
+            </div>
             {aiBriefErrors[ad.id] && <div className="form-error" role="alert">{aiBriefErrors[ad.id]}</div>}
           </article>
         ))}
