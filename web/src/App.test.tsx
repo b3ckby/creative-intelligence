@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs'
+
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -18,6 +20,11 @@ const api: CreativeIntelligenceApi = {
 }
 
 afterEach(() => { cleanup(); localStorage.clear() })
+
+it('uses the neutral application canvas color for browser chrome', () => {
+  const html = readFileSync('web/index.html', 'utf8')
+  expect(html).toContain('<meta name="theme-color" content="#f7f7f8" />')
+})
 
 it('uses a single password field for configured staging login without persisting credentials', async () => {
   const factory = vi.fn().mockReturnValue(api)
