@@ -303,7 +303,7 @@ describe('Creative Intelligence workspace', () => {
     expect(await screen.findByText('Orbit')).toBeTruthy()
   })
 
-  it('shows bounded brief evidence and turns a gap into a prefilled brief', async () => {
+  it('shows bounded brief evidence without bypassing the Brief Builder for gaps', async () => {
     const client = api()
     const gap = { audience: 'Founders', market: 'US', angle: 'Proof', format: 'Video' }
     vi.mocked(client.analyzeIterationMap).mockResolvedValue({
@@ -319,13 +319,9 @@ describe('Creative Intelligence workspace', () => {
     expect(await screen.findByText('50% covered')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /Founder speed/i }))
     expect(screen.getByText('production')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /Create brief for Founders, US, Proof, Video/i }))
-    const dialog = screen.getByRole('dialog', { name: 'New creative brief' })
-    expect(dialog).toBeTruthy()
-    expect((within(dialog).getByLabelText('Audience') as HTMLInputElement).value).toBe('Founders')
-    expect((within(dialog).getByLabelText('Market') as HTMLInputElement).value).toBe('US')
-    expect((within(dialog).getByLabelText('Angle') as HTMLInputElement).value).toBe('Proof')
-    expect((within(dialog).getByLabelText('Format') as HTMLInputElement).value).toBe('Video')
+    expect(screen.getByText('Founders · US · Video')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Create brief for Founders, US, Proof, Video/i })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'New creative brief' })).toBeNull()
   })
 
   it('uses server-side discovery filters and persists private bookmarks', async () => {
@@ -839,7 +835,7 @@ describe('Creative Intelligence workspace', () => {
     expect(styles).toMatch(/\.filter-search\s*\{[^}]*grid-column:\s*span 2/su)
     expect(styles).toMatch(/\.checkbox-label input\s*\{[^}]*width:\s*auto/su)
     expect(styles).toMatch(/\.card-utility-actions\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/su)
-    expect(styles).toMatch(/\.card-workflow-actions\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/su)
+    expect(styles).toMatch(/\.card-workflow-actions\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/su)
   })
 
   it('uses one neutral functional design system across the workspace', () => {
@@ -871,6 +867,9 @@ describe('Creative Intelligence workspace', () => {
     expect(within(dialog).getByText('Not available')).toBeTruthy()
     expect(within(dialog).getByText('Learn more')).toBeTruthy()
     expect(within(dialog).getByRole('link', { name: 'Open original ad' }).getAttribute('href')).toBe(ad.sourceUrl)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create brief' }))
+    await waitFor(() => expect(client.createAiBriefFromAd).toHaveBeenCalledWith(product.id, { adId: ad.id, title: 'Orbit — AI production brief' }))
+    expect(client.createBriefFromAd).not.toHaveBeenCalled()
   })
 
   it('analyzes a creative from its detail dialog and shows versioned model tags', async () => {
@@ -1020,7 +1019,7 @@ describe('Creative Intelligence workspace', () => {
     expect(screen.queryByText('Stale')).toBeNull()
   })
 
-  it('creates AI production briefs and opens versioned handoffs', async () => {
+  it('uses one Create brief action to generate an AI production brief', async () => {
     const client = api()
     const details = {
       strategy: { targetAudience: 'Founders', objective: 'conversion', keyMessage: 'Move faster', tension: 'slow work', proofPoints: ['Fast'] },
@@ -1036,8 +1035,11 @@ describe('Creative Intelligence workspace', () => {
     await screen.findByRole('heading', { name: 'Northstar' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'AI brief for Orbit' }))
+    const createButton = await screen.findByRole('button', { name: 'Create brief for Orbit' })
+    expect(screen.queryByRole('button', { name: 'AI brief for Orbit' })).toBeNull()
+    fireEvent.click(createButton)
     await waitFor(() => expect(client.createAiBriefFromAd).toHaveBeenCalledWith('product-1', { adId: 'ad-1', title: 'Orbit — AI production brief' }))
+    expect(client.createBriefFromAd).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Brief Builder' }))
     expect(await screen.findByText('AI production brief')).toBeTruthy()
@@ -1053,29 +1055,30 @@ describe('Creative Intelligence workspace', () => {
     await screen.findByRole('heading', { name: 'Northstar' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
-    const aiButton = await screen.findByRole('button', { name: 'AI brief for Orbit' })
-    const card = aiButton.closest('article')
+    const createButton = await screen.findByRole('button', { name: 'Create brief for Orbit' })
+    const card = createButton.closest('article')
     expect(card).not.toBeNull()
-    fireEvent.click(aiButton)
+    fireEvent.click(createButton)
 
     expect((await within(card as HTMLElement).findByRole('alert')).textContent).toBe('AI analysis is unavailable because Gemini is not configured.')
   })
 
-  it('submits at most one from-ad brief while the first request is pending', async () => {
+  it('submits at most one AI from-ad brief while the first request is pending', async () => {
     const client = api()
     const pending = deferred<typeof brief>()
-    vi.mocked(client.createBriefFromAd).mockReturnValue(pending.promise)
+    vi.mocked(client.createAiBriefFromAd).mockReturnValue(pending.promise)
     render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
     await screen.findByRole('heading', { name: 'Northstar' })
     fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
-    const createButton = await screen.findByRole('button', { name: 'Create brief' })
+    const createButton = await screen.findByRole('button', { name: 'Create brief for Orbit' })
     fireEvent.click(createButton)
     fireEvent.click(createButton)
 
-    await waitFor(() => expect(client.createBriefFromAd).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(client.createAiBriefFromAd).toHaveBeenCalledTimes(1))
     expect((createButton as HTMLButtonElement).disabled).toBe(true)
     pending.resolve(brief)
-    await screen.findByRole('heading', { name: 'Brief Builder' })
+    expect(await screen.findByText('AI production brief created from the latest grounded analysis.')).toBeTruthy()
+    await waitFor(() => expect((createButton as HTMLButtonElement).disabled).toBe(false))
   })
 
   it('does not let a slow initial ad response replace a newer filtered result', async () => {

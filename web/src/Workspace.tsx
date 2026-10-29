@@ -84,7 +84,6 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
   const [productLifecyclePending, setProductLifecyclePending] = useState(false)
   const [showCompetitorForm, setShowCompetitorForm] = useState(false)
   const [showBriefForm, setShowBriefForm] = useState(false)
-  const [briefSeed, setBriefSeed] = useState<BriefDimensions | null>(null)
   const [selectedAd, setSelectedAd] = useState<CompetitorAd | null>(null)
   const [selectedBrief, setSelectedBrief] = useState<CreativeBrief | null>(null)
   const [productionHandoff, setProductionHandoff] = useState<{ filename: string; markdown: string } | null>(null)
@@ -401,38 +400,6 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
     }
   }
 
-  const createBriefFromAd = async (selectedAd: CompetitorAd) => {
-    if (!selectedProduct || briefMutationPending.current.has(selectedAd.id)) return
-    briefMutationPending.current = new Set(briefMutationPending.current).add(selectedAd.id)
-    setPendingBriefAdIds(new Set(briefMutationPending.current))
-    const productId = selectedProduct.id
-    const generation = detailRequest.current
-    setError('')
-    try {
-      const created = await api.createBriefFromAd(productId, {
-        adId: selectedAd.id,
-        title: `${selectedAd.advertiserName} — creative response`,
-        dimensions: {
-          audience: selectedProduct.targetAudiences[0] ?? 'Unspecified audience',
-          market: selectedProduct.markets[0] ?? 'Unspecified market',
-          angle: 'Competitive response',
-          format: selectedAd.mediaUrls.length > 0 ? 'Visual ad' : 'Text ad',
-        },
-      })
-      if (generation !== detailRequest.current || selectedProductRef.current !== productId) return
-      setBriefs((current) => [created, ...current])
-      setSurface('briefs')
-      setNotice('Brief created from the selected ad.')
-    } catch (reason) {
-      if (generation === detailRequest.current && selectedProductRef.current === productId) setError(message(reason))
-    } finally {
-      const pending = new Set(briefMutationPending.current)
-      pending.delete(selectedAd.id)
-      briefMutationPending.current = pending
-      setPendingBriefAdIds(new Set(pending))
-    }
-  }
-
   const createAiBriefFromAd = async (selectedAd: CompetitorAd) => {
     if (!selectedProduct || briefMutationPending.current.has(selectedAd.id)) return
     briefMutationPending.current = new Set(briefMutationPending.current).add(selectedAd.id)
@@ -584,8 +551,7 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
                 onFilter={reloadAds}
                 onBookmark={toggleAdBookmark}
                 onSaveWinning={saveWinningAd}
-                onCreateBrief={createBriefFromAd}
-                onCreateAiBrief={createAiBriefFromAd}
+                onCreateBrief={createAiBriefFromAd}
                 onInspect={setSelectedAd}
               />
             )}
@@ -602,7 +568,7 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
               <BriefsSurface briefs={briefs} onAdd={() => setShowBriefForm(true)} onEdit={setSelectedBrief} onHandoff={openProductionHandoff} />
             )}
             {surface === 'map' && (
-              <IterationMapSurface product={selectedProduct} briefs={briefs} result={iterationMap} loading={iterationMapLoading} error={iterationMapError} onAnalyze={analyze} onCreateGap={(dimensions) => { setBriefSeed(dimensions); setShowBriefForm(true) }} />
+              <IterationMapSurface product={selectedProduct} briefs={briefs} result={iterationMap} loading={iterationMapLoading} error={iterationMapError} onAnalyze={analyze} />
             )}
             {surface === 'analytics' && (
               <AnalyticsSurface api={api} productId={selectedProduct.id} competitors={competitors} result={scalingAnalytics} loading={analyticsLoading} error={analyticsError} />
@@ -616,9 +582,9 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
       {showProductForm && <ProductDialog onClose={() => setShowProductForm(false)} onSubmit={createProduct} />}
       {editingProduct && <ProductDialog product={editingProduct} onClose={() => setEditingProduct(null)} onSubmit={updateProduct} />}
       {showCompetitorForm && <CompetitorDialog onClose={() => setShowCompetitorForm(false)} onSubmit={createCompetitor} />}
-      {showBriefForm && <BriefDialog product={selectedProduct} seed={briefSeed} onClose={() => { setShowBriefForm(false); setBriefSeed(null) }} onSubmit={createBrief} />}
+      {showBriefForm && <BriefDialog product={selectedProduct} onClose={() => setShowBriefForm(false)} onSubmit={createBrief} />}
       {selectedBrief && <EditBriefDialog brief={selectedBrief} loadVersions={api.listBriefVersions} onClose={() => setSelectedBrief(null)} onSubmit={updateBrief} />}
-      {selectedAd && <CreativeDetailDialog ad={selectedAd} pending={pendingBriefAdIds.has(selectedAd.id)} onClose={() => setSelectedAd(null)} onCreateBrief={createBriefFromAd} onAnalyze={analyzeCreative} />}
+      {selectedAd && <CreativeDetailDialog ad={selectedAd} pending={pendingBriefAdIds.has(selectedAd.id)} onClose={() => setSelectedAd(null)} onCreateBrief={createAiBriefFromAd} onAnalyze={analyzeCreative} />}
       {editingWinningAd && <WinningAdDialog item={editingWinningAd} onClose={() => setEditingWinningAd(null)} onSubmit={(draft) => updateWinningAd(editingWinningAd, draft)} />}
       {productionHandoff && <Dialog title="Production handoff" onClose={() => setProductionHandoff(null)}><div className="dialog-form"><pre className="production-handoff">{productionHandoff.markdown}</pre><div className="dialog-actions"><button type="button" className="secondary-button" onClick={() => setProductionHandoff(null)}>Close</button><a className="primary-button" download={productionHandoff.filename} href={`data:text/markdown;charset=utf-8,${encodeURIComponent(productionHandoff.markdown)}`}>Download .md</a></div></div></Dialog>}
     </>
@@ -925,7 +891,7 @@ function TagSnapshot({ title, tags }: { title: string; tags: CreativeAnalysis['t
   return <section><h3>{title}</h3>{tags ? <dl>{[['Hook',tags.hookCategory],['Angle',tags.angle],['Format',tags.format],['Offer',tags.offerFrame],['Funnel',tags.funnelStage]].map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl> : <p>Excluded by reviewer decision.</p>}</section>
 }
 
-function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, aiBriefErrors, pendingBookmarkAdIds, onFilter, onBookmark, onSaveWinning, onCreateBrief, onCreateAiBrief, onInspect }: {
+function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, aiBriefErrors, pendingBookmarkAdIds, onFilter, onBookmark, onSaveWinning, onCreateBrief, onInspect }: {
   ads: CompetitorAd[]
   competitors: Competitor[]
   filters: AdFilters
@@ -937,7 +903,6 @@ function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, a
   onBookmark: (ad: CompetitorAd) => Promise<void>
   onSaveWinning: (ad: CompetitorAd) => Promise<void>
   onCreateBrief: (ad: CompetitorAd) => Promise<void>
-  onCreateAiBrief: (ad: CompetitorAd) => Promise<void>
   onInspect: (ad: CompetitorAd) => void
 }) {
   const [query, setQuery] = useState(filters.search ?? '')
@@ -1011,8 +976,7 @@ function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, a
                 ? <button className="winning-action" aria-label={`Save ${ad.advertiserName} to Winning Ads`} onClick={() => void onSaveWinning(ad)}>Winning Ads</button>
                 : <span className="unavailable-note">Winning Ads unavailable until trusted media mirror completes.</span>}
               <div className="card-workflow-actions">
-                <button disabled={pendingBriefAdIds.has(ad.id)} onClick={() => onCreateBrief(ad)}>{pendingBriefAdIds.has(ad.id) ? 'Creating…' : 'Create brief'}</button>
-                <button aria-label={`AI brief for ${ad.advertiserName}`} disabled={pendingBriefAdIds.has(ad.id)} onClick={() => onCreateAiBrief(ad)}>{pendingBriefAdIds.has(ad.id) ? 'Creating AI brief…' : 'AI brief'}</button>
+                <button aria-label={`Create brief for ${ad.advertiserName}`} disabled={pendingBriefAdIds.has(ad.id)} onClick={() => onCreateBrief(ad)}>{pendingBriefAdIds.has(ad.id) ? 'Creating brief…' : 'Create brief'}</button>
               </div>
             </div>
             {aiBriefErrors[ad.id] && <div className="form-error" role="alert">{aiBriefErrors[ad.id]}</div>}
@@ -1208,14 +1172,13 @@ function BriefsSurface({ briefs, onAdd, onEdit, onHandoff }: { briefs: CreativeB
   )
 }
 
-function IterationMapSurface({ product, briefs, result, loading, error, onAnalyze, onCreateGap }: {
+function IterationMapSurface({ product, briefs, result, loading, error, onAnalyze }: {
   product: Product
   briefs: CreativeBrief[]
   result: IterationMap | null
   loading: boolean
   error: string
   onAnalyze: (axes: IterationAxes) => Promise<void>
-  onCreateGap: (dimensions: BriefDimensions) => void
 }) {
   const defaults = useMemo<IterationAxes>(() => ({
     audience: unique([...product.targetAudiences, ...briefs.map((brief) => brief.dimensions.audience)]),
@@ -1255,7 +1218,7 @@ function IterationMapSurface({ product, briefs, result, loading, error, onAnalyz
                   <div className="coverage-summary"><strong>{result.covered.length}<span>/{result.totalCombinations}</span></strong><p>{percent}% covered</p></div>
                   <div className="map-view-controls"><label>Show cells<select aria-label="Show cells" value={visibility} onChange={(event) => setVisibility(event.target.value as typeof visibility)}><option value="all">Coverage and gaps</option><option value="covered">Covered only</option><option value="gaps">Gaps only</option></select></label><span>{Math.min(cells.length, visibleLimit)} of {cells.length}</span></div>
                   {cells.length === 0 ? <div className="map-empty">No cells match this view.</div> : <div className="coverage-grid" aria-label="Iteration coverage cells">
-                    {cells.slice(0, visibleLimit).map((cell) => <CoverageCell key={dimensionKey(cell.dimensions)} cell={cell} onCreateGap={onCreateGap} />)}
+                    {cells.slice(0, visibleLimit).map((cell) => <CoverageCell key={dimensionKey(cell.dimensions)} cell={cell} />)}
                   </div>}
                   {cells.length > visibleLimit && <button type="button" className="secondary-button map-more" onClick={() => setVisibleLimit((value) => Math.min(value + 24, cells.length))}>Show 24 more</button>}
                 </>
@@ -1389,10 +1352,9 @@ function AnalyticsSurface({ api, productId, competitors, result, loading, error 
   )
 }
 
-function CoverageCell({ cell, onCreateGap }: { cell: IterationCell & { covered: boolean }; onCreateGap: (dimensions: BriefDimensions) => void }) {
+function CoverageCell({ cell }: { cell: IterationCell & { covered: boolean } }) {
   const [expanded, setExpanded] = useState(false)
-  const label = `${cell.dimensions.audience}, ${cell.dimensions.market}, ${cell.dimensions.angle}, ${cell.dimensions.format}`
-  if (!cell.covered) return <article className="coverage-cell gap"><span>Gap</span><strong>{cell.dimensions.angle}</strong><p>{cell.dimensions.audience} · {cell.dimensions.market} · {cell.dimensions.format}</p><button type="button" className="text-button" aria-label={`Create brief for ${label}`} onClick={() => onCreateGap(cell.dimensions)}>Create brief</button></article>
+  if (!cell.covered) return <article className="coverage-cell gap"><span>Gap</span><strong>{cell.dimensions.angle}</strong><p>{cell.dimensions.audience} · {cell.dimensions.market} · {cell.dimensions.format}</p></article>
   return <article className="coverage-cell covered">
     <span>{cell.briefCount} brief{cell.briefCount === 1 ? '' : 's'}</span><strong>{cell.dimensions.angle}</strong><p>{cell.dimensions.audience} · {cell.dimensions.market} · {cell.dimensions.format}</p>
     <button type="button" className="text-button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? 'Hide evidence' : `View evidence: ${cell.briefs.map(({ title }) => title).join(', ')}`}</button>
