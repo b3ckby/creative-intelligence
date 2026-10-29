@@ -78,6 +78,7 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
   const [pendingOperations, setPendingOperations] = useState(0)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [aiBriefErrors, setAiBriefErrors] = useState<Record<string, string>>({})
   const [showProductForm, setShowProductForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [productLifecyclePending, setProductLifecyclePending] = useState(false)
@@ -439,13 +440,24 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
     const productId = selectedProduct.id
     const generation = detailRequest.current
     setError('')
+    setAiBriefErrors((current) => {
+      const next = { ...current }
+      delete next[selectedAd.id]
+      return next
+    })
     try {
       const created = await api.createAiBriefFromAd(productId, { adId: selectedAd.id, title: `${selectedAd.advertiserName} — AI production brief` })
       if (generation !== detailRequest.current || selectedProductRef.current !== productId) return
       setBriefs((current) => [created, ...current.filter(({ id }) => id !== created.id)])
       setNotice('AI production brief created from the latest grounded analysis.')
     } catch (reason) {
-      if (generation === detailRequest.current && selectedProductRef.current === productId) setError(message(reason))
+      if (generation === detailRequest.current && selectedProductRef.current === productId) {
+        const detail = reason instanceof ApiError && reason.status === 503
+          ? 'AI analysis is unavailable because Gemini is not configured.'
+          : message(reason)
+        setError(detail)
+        setAiBriefErrors((current) => ({ ...current, [selectedAd.id]: detail }))
+      }
     } finally {
       const pending = new Set(briefMutationPending.current)
       pending.delete(selectedAd.id)
@@ -567,6 +579,7 @@ export function Workspace({ api, organizationLabel, onDisconnect }: WorkspacePro
                 filters={adFilters}
                 productId={selectedProduct.id}
                 pendingBriefAdIds={pendingBriefAdIds}
+                aiBriefErrors={aiBriefErrors}
                 pendingBookmarkAdIds={pendingBookmarkAdIds}
                 onFilter={reloadAds}
                 onBookmark={toggleAdBookmark}
@@ -912,12 +925,13 @@ function TagSnapshot({ title, tags }: { title: string; tags: CreativeAnalysis['t
   return <section><h3>{title}</h3>{tags ? <dl>{[['Hook',tags.hookCategory],['Angle',tags.angle],['Format',tags.format],['Offer',tags.offerFrame],['Funnel',tags.funnelStage]].map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl> : <p>Excluded by reviewer decision.</p>}</section>
 }
 
-function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, pendingBookmarkAdIds, onFilter, onBookmark, onSaveWinning, onCreateBrief, onCreateAiBrief, onInspect }: {
+function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, aiBriefErrors, pendingBookmarkAdIds, onFilter, onBookmark, onSaveWinning, onCreateBrief, onCreateAiBrief, onInspect }: {
   ads: CompetitorAd[]
   competitors: Competitor[]
   filters: AdFilters
   productId: string
   pendingBriefAdIds: ReadonlySet<string>
+  aiBriefErrors: Readonly<Record<string, string>>
   pendingBookmarkAdIds: ReadonlySet<string>
   onFilter: (filters: AdFilters) => Promise<void>
   onBookmark: (ad: CompetitorAd) => Promise<void>
@@ -987,7 +1001,8 @@ function AdsSurface({ ads, competitors, filters, productId, pendingBriefAdIds, p
             <div className="ad-visual"><AdCreative ad={ad} /></div>
             <div className="ad-copy"><p>{ad.body || 'Visual creative without body copy.'}</p></div>
             <div className="ad-meta"><span>{formatDate(ad.startedAt)}</span><span>{ad.callToAction ?? 'No CTA'}</span></div>
-            <div className="card-actions"><a href={ad.sourceUrl} target="_blank" rel="noreferrer">Source ↗</a><button aria-label={`View creative details for ${ad.advertiserName}`} onClick={() => onInspect(ad)}>View</button><button aria-label={ad.bookmarked ? `Remove bookmark from ${ad.advertiserName}` : `Bookmark ${ad.advertiserName}`} disabled={pendingBookmarkAdIds.has(ad.id)} onClick={() => void onBookmark(ad)}>{ad.bookmarked ? 'Saved' : 'Save'}</button>{hasTrustedMirror(ad) ? <button aria-label={`Save ${ad.advertiserName} to Winning Ads`} onClick={() => void onSaveWinning(ad)}>Winning Ads</button> : <span className="unavailable-note">Winning Ads unavailable until trusted media mirror completes.</span>}<button disabled={pendingBriefAdIds.has(ad.id)} onClick={() => onCreateBrief(ad)}>{pendingBriefAdIds.has(ad.id) ? 'Creating…' : 'Create brief'}</button><button aria-label={`AI brief for ${ad.advertiserName}`} disabled={pendingBriefAdIds.has(ad.id)} onClick={() => onCreateAiBrief(ad)}>AI brief</button></div>
+            <div className="card-actions"><a href={ad.sourceUrl} target="_blank" rel="noreferrer">Source ↗</a><button aria-label={`View creative details for ${ad.advertiserName}`} onClick={() => onInspect(ad)}>View</button><button aria-label={ad.bookmarked ? `Remove bookmark from ${ad.advertiserName}` : `Bookmark ${ad.advertiserName}`} disabled={pendingBookmarkAdIds.has(ad.id)} onClick={() => void onBookmark(ad)}>{ad.bookmarked ? 'Saved' : 'Save'}</button>{hasTrustedMirror(ad) ? <button aria-label={`Save ${ad.advertiserName} to Winning Ads`} onClick={() => void onSaveWinning(ad)}>Winning Ads</button> : <span className="unavailable-note">Winning Ads unavailable until trusted media mirror completes.</span>}<button disabled={pendingBriefAdIds.has(ad.id)} onClick={() => onCreateBrief(ad)}>{pendingBriefAdIds.has(ad.id) ? 'Creating…' : 'Create brief'}</button><button aria-label={`AI brief for ${ad.advertiserName}`} disabled={pendingBriefAdIds.has(ad.id)} onClick={() => onCreateAiBrief(ad)}>{pendingBriefAdIds.has(ad.id) ? 'Creating AI brief…' : 'AI brief'}</button></div>
+            {aiBriefErrors[ad.id] && <div className="form-error" role="alert">{aiBriefErrors[ad.id]}</div>}
           </article>
         ))}
         {visibleAds.length === 0 && <EmptyPanel title="No ads match this view" copy="Adjust the filters or import source records through the API." />}

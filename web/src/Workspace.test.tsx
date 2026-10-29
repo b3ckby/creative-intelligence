@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { BRIEF_STATUS_TRANSITIONS } from '../../src/domain/brief-status-transitions.ts'
-import type { CreativeIntelligenceApi } from './api.ts'
+import { ApiError, type CreativeIntelligenceApi } from './api.ts'
 import type { BriefStatus } from './types.ts'
 import { Workspace } from './Workspace.tsx'
 
@@ -1021,6 +1021,21 @@ describe('Creative Intelligence workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Production handoff for AI production' }))
     expect(await screen.findByRole('heading', { name: 'Production handoff' })).toBeTruthy()
     expect(screen.getByText(/Production-ready/)).toBeTruthy()
+  })
+
+  it('shows AI brief failures beside the creative that triggered them', async () => {
+    const client = api()
+    vi.mocked(client.createAiBriefFromAd).mockRejectedValue(new ApiError(503, 'Service unavailable'))
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
+    const aiButton = await screen.findByRole('button', { name: 'AI brief for Orbit' })
+    const card = aiButton.closest('article')
+    expect(card).not.toBeNull()
+    fireEvent.click(aiButton)
+
+    expect((await within(card as HTMLElement).findByRole('alert')).textContent).toBe('AI analysis is unavailable because Gemini is not configured.')
   })
 
   it('submits at most one from-ad brief while the first request is pending', async () => {
