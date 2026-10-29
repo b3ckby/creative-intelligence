@@ -7,7 +7,7 @@ import {
   type AnalyzeIterationMapInput,
   type IterationMapResult,
 } from '../iteration-map/iteration-map-service.ts'
-import { decodeStoredBriefDimensions } from './postgres-brief-repository.ts'
+import { decodeStoredBriefDimensions, decodeStoredBriefStatus, storedBriefText } from './postgres-brief-repository.ts'
 import { storedIdentifier } from './catalog-row-decoders.ts'
 import { requireBriefReadContext } from './postgres-brief-read-context.ts'
 import type { SqlPool } from './postgres-organization-repository.ts'
@@ -15,7 +15,7 @@ import { withVerifiedUserReadContext } from './verified-user-context.ts'
 
 export { MAX_ACTIVE_BRIEFS } from '../iteration-map/iteration-map-service.ts'
 
-type IterationBriefRow = { id: string; dimensions: unknown }
+type IterationBriefRow = { id: string; title: string; status: string; dimensions: unknown }
 
 export class PostgresIterationMapRepository {
   constructor(private readonly pool: SqlPool) {}
@@ -27,7 +27,7 @@ export class PostgresIterationMapRepository {
     return withVerifiedUserReadContext(this.pool, verifiedUserId, async (client) => {
       const product = await requireBriefReadContext(client, verifiedUserId, organizationId, productId)
       const result = await client.query<IterationBriefRow>(
-        `SELECT id, dimensions
+        `SELECT id, title, status, dimensions
          FROM creative_briefs
          WHERE organization_id = $1 AND product_id = $2 AND status <> 'archived'
          ORDER BY created_at, id
@@ -37,8 +37,10 @@ export class PostgresIterationMapRepository {
       if (result.rows.length > MAX_ACTIVE_BRIEFS) {
         throw new ValidationError(`Iteration Map has too many active briefs; maximum is ${MAX_ACTIVE_BRIEFS}`)
       }
-      const briefs = result.rows.map(({ id, dimensions }) => ({
+      const briefs = result.rows.map(({ id, title, status, dimensions }) => ({
         id: storedIdentifier(id, 'iteration-brief.id'),
+        title: storedBriefText(title, 'title', 500, false),
+        status: decodeStoredBriefStatus(status),
         dimensions: decodeStoredBriefDimensions(dimensions),
       }))
       return analyzeNormalizedIterationMap(normalizedInput, product, briefs)

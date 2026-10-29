@@ -99,6 +99,27 @@ test('scheduled sync config requires explicit enablement and bounded safe values
   assert.throws(() => parseRuntimeConfig({ ...VALID_ENV, AD_SYNC_ENABLED: 'true', AD_SYNC_INTERVAL_MS: '5000', AD_SYNC_LEASE_SECONDS: '120', AD_SYNC_MAX_ATTEMPTS: '4', AD_SYNC_BACKOFF_BASE_MS: '1000', AD_SYNC_BACKOFF_MAX_MS: '60000', AD_SYNC_BATCH_SIZE: '10', AD_SYNC_CONCURRENCY: '2', AD_SYNC_WORKER_DATABASE_URL: 'postgresql://worker:***@127.0.0.1/db', AD_SYNC_WORKER_DATABASE_ROLE: 'some_other_worker' }), { message: 'Runtime configuration is invalid' })
 })
 
+test('media mirror config fails closed without a bounded local store and isolated worker role', () => {
+  assert.equal(parseRuntimeConfig(VALID_ENV).mediaMirror, undefined)
+  assert.throws(() => parseRuntimeConfig({ ...VALID_ENV, MEDIA_MIRROR_STORAGE_ROOT: '/var/lib/creative-media' }), { message: 'Runtime configuration is invalid' })
+  const enabled = parseRuntimeConfig({
+    ...VALID_ENV,
+    MEDIA_MIRROR_ENABLED: 'true', MEDIA_MIRROR_STORAGE_ROOT: '/var/lib/creative-intelligence/media',
+    MEDIA_MIRROR_INTERVAL_MS: '5000', MEDIA_MIRROR_LEASE_SECONDS: '60', MEDIA_MIRROR_BATCH_SIZE: '10', MEDIA_MIRROR_CONCURRENCY: '2',
+    MEDIA_MIRROR_BACKFILL_BATCH_SIZE: '100', MEDIA_MIRROR_BACKOFF_BASE_MS: '1000', MEDIA_MIRROR_BACKOFF_MAX_MS: '60000',
+    MEDIA_MIRROR_FETCH_TIMEOUT_MS: '15000', MEDIA_MIRROR_MAX_BYTES: '25000000', MEDIA_MIRROR_MAX_REDIRECTS: '3',
+    MEDIA_MIRROR_WORKER_DATABASE_URL: 'postgresql://media:***@127.0.0.1:5432/creative_intelligence',
+    MEDIA_MIRROR_WORKER_DATABASE_ROLE: 'creative_intelligence_media_worker',
+  }).mediaMirror
+  assert.deepEqual(enabled, {
+    storageRoot: '/var/lib/creative-intelligence/media', intervalMs: 5000, leaseSeconds: 60, batchSize: 10, concurrency: 2,
+    backfillBatchSize: 100, backoffBaseMs: 1000, backoffMaxMs: 60000, fetchTimeoutMs: 15000, maxBytes: 25000000, maxRedirects: 3,
+    workerDatabase: { url: 'postgresql://media:***@127.0.0.1:5432/creative_intelligence', expectedRole: 'creative_intelligence_media_worker' },
+  })
+  assert.throws(() => parseRuntimeConfig({ ...VALID_ENV, MEDIA_MIRROR_ENABLED: 'true' }), { message: 'Runtime configuration is invalid' })
+  assert.throws(() => parseRuntimeConfig({ ...VALID_ENV, MEDIA_MIRROR_ENABLED: 'true', MEDIA_MIRROR_STORAGE_ROOT: '/', MEDIA_MIRROR_WORKER_DATABASE_ROLE: 'creative_intelligence_runtime' }), { message: 'Runtime configuration is invalid' })
+})
+
 test('documented scheduled defaults have a thirty-second post-provider lease margin', async () => {
   const text = await readFile(new URL('../.env.example', import.meta.url), 'utf8')
   const scheduledNames = new Set([
@@ -156,11 +177,11 @@ test('scheduled worker verification rejects application object ownership indepen
   await assert.rejects(() => verifyScheduledWorkerDatabase(pool, 2_000), {
     message: 'Database startup validation failed',
   })
-  assert.match(queried[0]!, /datdba = login_role\.oid/u)
-  assert.match(queried[0]!, /nspowner = login_role\.oid/u)
-  assert.match(queried[0]!, /relowner = login_role\.oid/u)
-  assert.match(queried[0]!, /proowner = login_role\.oid/u)
-  assert.match(queried[0]!, /typowner = login_role\.oid/u)
+  assert.match(queried[0]!, /datdba IN \(login_role\.oid, active_role\.oid\)/u)
+  assert.match(queried[0]!, /nspowner IN \(login_role\.oid, active_role\.oid\)/u)
+  assert.match(queried[0]!, /relowner IN \(login_role\.oid, active_role\.oid\)/u)
+  assert.match(queried[0]!, /proowner IN \(login_role\.oid, active_role\.oid\)/u)
+  assert.match(queried[0]!, /typowner IN \(login_role\.oid, active_role\.oid\)/u)
 })
 
 test('runtime configuration rejects unsafe database, network, pool, and signing settings', () => {
@@ -247,6 +268,7 @@ test('runtime configuration accepts opt-in creative analysis only with an extern
   }
   assert.deepEqual(parseRuntimeConfig(enabled).creativeAnalysis, {
     apiKeyFile: '/run/credentials/gemini-api-key', model: 'gemini-2.5-flash', timeoutMs: 30_000, maxConcurrency: 2, dailyLimit: 100,
+    maxMediaCount: 4, maxMediaBytes: 8 * 1024 * 1024,
   })
   assert.throws(() => parseRuntimeConfig({ ...VALID_ENV, CREATIVE_ANALYSIS_ENABLED: 'true' }), { message: 'Runtime configuration is invalid' })
   assert.throws(() => parseRuntimeConfig({ ...enabled, GEMINI_API_KEY_FILE: 'relative-key' }), { message: 'Runtime configuration is invalid' })

@@ -7,6 +7,7 @@ const MAX_AXIS_VALUES = 50
 const MAX_COMBINATIONS = 10_000
 export const MAX_ACTIVE_BRIEFS = 10_000
 export const ITERATION_MAP_OVERFLOW_PROBE_LIMIT = MAX_ACTIVE_BRIEFS + 1
+export const MAX_CELL_BRIEF_EVIDENCE = 25
 const AXIS_NAMES = ['audience', 'market', 'angle', 'format'] as const
 
 export interface IterationAxes {
@@ -25,6 +26,9 @@ export interface AnalyzeIterationMapInput {
 export interface IterationCell {
   dimensions: BriefDimensions
   briefIds: string[]
+  briefs: Array<Pick<CreativeBrief, 'id' | 'title' | 'status'>>
+  briefCount: number
+  hasMoreBriefs: boolean
 }
 
 export interface IterationMapResult {
@@ -108,19 +112,19 @@ export function analyzeIterationMap(
 export function analyzeNormalizedIterationMap(
   input: AnalyzeIterationMapInput,
   product: Pick<Product, 'id' | 'organizationId'>,
-  briefs: readonly Pick<CreativeBrief, 'id' | 'dimensions'>[],
+  briefs: readonly Pick<CreativeBrief, 'id' | 'title' | 'status' | 'dimensions'>[],
 ): IterationMapResult {
   if (product.organizationId !== input.organizationId || product.id !== input.productId) {
     throw new ValidationError('Product does not belong to organization')
   }
 
   const { audience: audiences, market: markets, angle: angles, format: formats } = input.axes
-  const briefsByCombination = new Map<string, string[]>()
+  const briefsByCombination = new Map<string, Array<Pick<CreativeBrief, 'id' | 'title' | 'status'>>>()
 
   for (const brief of briefs) {
     const key = keyOf(brief.dimensions)
     const ids = briefsByCombination.get(key) ?? []
-    ids.push(brief.id)
+    ids.push({ id: brief.id, title: brief.title, status: brief.status })
     briefsByCombination.set(key, ids)
   }
 
@@ -131,9 +135,15 @@ export function analyzeNormalizedIterationMap(
       for (const angle of angles) {
         for (const format of formats) {
           const dimensions = { audience, market, angle, format }
-          const briefIds = briefsByCombination.get(keyOf(dimensions)) ?? []
-          const cell = { dimensions, briefIds: [...briefIds] }
-          if (briefIds.length > 0) covered.push(cell)
+          const matchingBriefs = briefsByCombination.get(keyOf(dimensions)) ?? []
+          const cell = {
+            dimensions,
+            briefIds: matchingBriefs.map(({ id }) => id),
+            briefs: matchingBriefs.slice(0, MAX_CELL_BRIEF_EVIDENCE),
+            briefCount: matchingBriefs.length,
+            hasMoreBriefs: matchingBriefs.length > MAX_CELL_BRIEF_EVIDENCE,
+          }
+          if (matchingBriefs.length > 0) covered.push(cell)
           else missing.push(cell)
         }
       }

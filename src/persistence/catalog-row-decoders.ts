@@ -48,6 +48,10 @@ export function decodeAdRow(value: unknown): CompetitorAd {
   const spendUpperBound = storedNullableNonNegativeNumber(row.spend_upper_bound, 'ad.spend_upper_bound')
   if (impressionsLowerBound !== null && impressionsUpperBound !== null && impressionsLowerBound > impressionsUpperBound) throw integrity('ad.impressions')
   if (spendLowerBound !== null && spendUpperBound !== null && spendLowerBound > spendUpperBound) throw integrity('ad.spend')
+  const mirrors = storedMediaMirrors(row.media_mirrors)
+  if (row.bookmarked !== undefined && typeof row.bookmarked !== 'boolean') throw integrity('ad.bookmarked')
+  const mediaUrls = storedHttpsUrlArray(row.media_urls, 'ad.media_urls')
+  const mirroredMediaUrls = mediaUrls.map((_url, position) => mirrorReference(mirrors.get(`legacy:${position}`)))
   return withCursorTimestamp({
     id: storedIdentifier(row.id, 'ad.id'),
     organizationId: storedIdentifier(row.organization_id, 'ad.organization_id'),
@@ -75,11 +79,13 @@ export function decodeAdRow(value: unknown): CompetitorAd {
     spendLowerBound,
     spendUpperBound,
     currency: storedCurrency(row.currency),
-    media: storedMedia(row.media),
-    mediaUrls: storedHttpsUrlArray(row.media_urls, 'ad.media_urls'),
+    media: storedMedia(row.media, mirrors),
+    mediaUrls,
+    ...(mirroredMediaUrls.some((reference) => reference !== null) ? { mirroredMediaUrls } : {}),
     sourceUrl: storedHttpsUrl(row.source_url, 'ad.source_url'),
     firstSeenAt: storedTimestamp(row.first_seen_at, 'ad.first_seen_at'),
     lastSeenAt: storedTimestamp(row.last_seen_at, 'ad.last_seen_at'),
+    ...(typeof row.bookmarked === 'boolean' ? { bookmarked: row.bookmarked } : {}),
   }, row, 'ad')
 }
 
@@ -139,21 +145,47 @@ function storedCurrency(value: unknown): string | null {
   return value
 }
 
-function storedMedia(value: unknown): AdMedia[] | null {
+function storedMedia(value: unknown, mirrors: ReadonlyMap<string, string>): AdMedia[] | null {
   if (value === undefined || value === null) return null
   if (!Array.isArray(value) || value.length > 50) throw integrity('ad.media')
   return value.map((item, index) => {
     const media = storedRecord(item, 'ad.media')
     if ((media.kind !== 'image' && media.kind !== 'video') || media.order !== index) throw integrity('ad.media')
     if (media.cardIndex !== null && (!Number.isSafeInteger(media.cardIndex) || (media.cardIndex as number) < 0 || (media.cardIndex as number) > 49)) throw integrity('ad.media')
+    const mirroredUrl = mirrorReference(mirrors.get(`structured_source:${index}`))
+    const mirroredPosterUrl = mirrorReference(mirrors.get(`structured_poster:${index}`))
     return {
       kind: media.kind,
       sourceUrl: storedHttpsUrl(media.sourceUrl, 'ad.media.sourceUrl'),
+      ...(mirroredUrl ? { mirroredUrl } : {}),
       posterUrl: media.posterUrl === null ? null : storedHttpsUrl(media.posterUrl, 'ad.media.posterUrl'),
+      ...(mirroredPosterUrl ? { mirroredPosterUrl } : {}),
       cardIndex: media.cardIndex as number | null,
       order: index,
     }
   })
+}
+
+function storedMediaMirrors(value: unknown): Map<string, string> {
+  const result = new Map<string, string>()
+  if (value === undefined || value === null) return result
+  if (!Array.isArray(value) || value.length > 150) throw integrity('ad.media_mirrors')
+  for (const item of value) {
+    const mirror = storedRecord(item, 'ad.media_mirrors')
+    const keys = Object.keys(mirror)
+    if (keys.length !== 3 || !keys.includes('slotKind') || !keys.includes('position') || !keys.includes('checksum')) throw integrity('ad.media_mirrors')
+    if (mirror.slotKind !== 'structured_source' && mirror.slotKind !== 'structured_poster' && mirror.slotKind !== 'legacy') throw integrity('ad.media_mirrors')
+    if (!Number.isSafeInteger(mirror.position) || (mirror.position as number) < 0 || (mirror.position as number) > 49) throw integrity('ad.media_mirrors')
+    if (typeof mirror.checksum !== 'string' || !/^[a-f0-9]{64}$/u.test(mirror.checksum)) throw integrity('ad.media_mirrors')
+    const key = `${mirror.slotKind}:${mirror.position as number}`
+    if (result.has(key)) throw integrity('ad.media_mirrors')
+    result.set(key, mirror.checksum)
+  }
+  return result
+}
+
+function mirrorReference(checksum: string | undefined): string | null {
+  return checksum ? `/media/sha256/${checksum}` : null
 }
 
 function storedTextArray(value: unknown, field: string, maxItems = 100, maxItemLength = 500): string[] {

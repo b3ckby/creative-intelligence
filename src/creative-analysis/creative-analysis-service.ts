@@ -8,8 +8,21 @@ export const CREATIVE_ANGLES = ['emotional', 'rational', 'identity', 'urgency', 
 export const CREATIVE_FORMATS = ['ugc', 'asmr', 'podcast', 'pov', 'review', 'teaser', 'stream', 'tutorial', 'documentary', 'news_story', 'meme', 'action', 'drama', 'cartoon'] as const
 export const OFFER_FRAMES = ['discount', 'demo', 'free_tool', 'bundle', 'guarantee', 'social_proof', 'none'] as const
 export const FUNNEL_STAGES = ['awareness', 'consideration', 'conversion', 'retention'] as const
-export const CREATIVE_ANALYSIS_VERSION = 'gemini-copy-v1'
-export const CREATIVE_PROMPT_VERSION = 'creative-tags-v1'
+export const CREATIVE_ANALYSIS_VERSION = 'gemini-grounded-v2'
+export const CREATIVE_PROMPT_VERSION = 'creative-tags-grounded-v2'
+
+export type CreativeAnalysisMode = 'media' | 'copy_only'
+export type CreativeAnalysisProvenance = 'manual' | 'automatic'
+export type CreativeImageMime = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+
+export interface CreativeMediaDescriptor {
+  slotKind: 'structured_source' | 'structured_poster' | 'legacy'
+  position: number
+  checksum: string
+  mediaType: CreativeImageMime
+  byteSize: number
+  bytes: Buffer
+}
 
 export interface CreativeTags {
   hookCategory: typeof HOOK_CATEGORIES[number]
@@ -29,6 +42,8 @@ export interface CreativeTaggerInput {
   advertiserName: string
   body: string
   callToAction: string | null
+  mode?: CreativeAnalysisMode
+  media?: readonly CreativeMediaDescriptor[]
 }
 
 export interface CreativeTagger {
@@ -52,6 +67,9 @@ export interface CreativeAnalysisRecord {
   inputFingerprint: string
   tags: CreativeTags
   analyzedAt: string
+  provenance: CreativeAnalysisProvenance
+  analysisMode: CreativeAnalysisMode
+  mediaCount: number
 }
 
 export interface CreativeAnalysisClaim { claimToken: string }
@@ -75,8 +93,9 @@ export class CreativeAnalysisService {
     this.analysisVersion = creativeAnalysisVersion(tagger.provider, tagger.model)
   }
 
-  async analyze(actorUserId: string, ad: CompetitorAd): Promise<CreativeAnalysisRecord> {
-    const fingerprint = creativeInputFingerprint(ad)
+  async analyze(actorUserId: string, ad: CompetitorAd, media: readonly CreativeMediaDescriptor[] = [], provenance: CreativeAnalysisProvenance = 'manual'): Promise<CreativeAnalysisRecord> {
+    const prepared = prepareCreativeMedia(media, { maxCount: 4, maxAggregateBytes: 8 * 1024 * 1024 })
+    const fingerprint = creativeInputFingerprint(ad, prepared)
     const current = await this.repository.findCompleted(actorUserId, ad, this.analysisVersion, fingerprint)
     if (current) return current
     const claim = await this.repository.acquireClaim(actorUserId, ad, this.analysisVersion, fingerprint)
@@ -86,7 +105,8 @@ export class CreativeAnalysisService {
       throw new ConflictError('Creative analysis is already running')
     }
     try {
-      const input = Object.freeze({ advertiserName: ad.advertiserName, body: ad.body, callToAction: ad.callToAction })
+      const mode: CreativeAnalysisMode = prepared.length > 0 ? 'media' : 'copy_only'
+      const input = Object.freeze({ advertiserName: ad.advertiserName, body: ad.body, callToAction: ad.callToAction, mode, media: prepared })
       let rawTags: unknown
       for (let attempt = 0; attempt < 2; attempt += 1) {
         await this.repository.consumeUsage(actorUserId, ad, this.analysisVersion, fingerprint, claim.claimToken)
@@ -111,6 +131,9 @@ export class CreativeAnalysisService {
         inputFingerprint: fingerprint,
         tags,
         analyzedAt: this.now().toISOString(),
+        provenance,
+        analysisMode: mode,
+        mediaCount: prepared.length,
       }
       await this.repository.complete(actorUserId, record, claim.claimToken)
       return record
@@ -134,9 +157,41 @@ export function creativeAnalysisVersion(provider: string, model: string): string
   return `${CREATIVE_ANALYSIS_VERSION}-${createHash('sha256').update(identity).digest('hex').slice(0, 24)}`
 }
 
-export function creativeInputFingerprint(ad: Pick<CompetitorAd, 'advertiserName' | 'body' | 'callToAction'>): string {
-  const canonical = JSON.stringify([ad.advertiserName, ad.body, ad.callToAction])
+export function creativeInputFingerprint(
+  ad: Pick<CompetitorAd, 'advertiserName' | 'body' | 'callToAction'>,
+  media: readonly Pick<CreativeMediaDescriptor, 'slotKind' | 'position' | 'checksum'>[] = [],
+): string {
+  const ordered = [...media].sort(compareMedia).map(({ slotKind, position, checksum }) => [slotKind, position, checksum])
+  const canonical = JSON.stringify([ad.advertiserName, ad.body, ad.callToAction, ordered])
   return createHash('sha256').update(canonical).digest('hex')
+}
+
+export function prepareCreativeMedia(
+  media: readonly CreativeMediaDescriptor[],
+  limits: Readonly<{ maxCount: number; maxAggregateBytes: number }>,
+): CreativeMediaDescriptor[] {
+  if (!Number.isSafeInteger(limits.maxCount) || limits.maxCount < 0 || limits.maxCount > 16
+    || !Number.isSafeInteger(limits.maxAggregateBytes) || limits.maxAggregateBytes < 0 || limits.maxAggregateBytes > 32 * 1024 * 1024
+    || media.length > limits.maxCount) throw new Error('Creative media exceeds bounds')
+  let aggregate = 0
+  const result = media.map((item) => {
+    if (!['structured_source', 'structured_poster', 'legacy'].includes(item.slotKind)
+      || !Number.isSafeInteger(item.position) || item.position < 0 || item.position > 49
+      || !/^[a-f0-9]{64}$/u.test(item.checksum)
+      || !['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(item.mediaType)
+      || !Buffer.isBuffer(item.bytes) || !Number.isSafeInteger(item.byteSize) || item.byteSize < 1 || item.byteSize !== item.bytes.length) {
+      throw new Error(item.mediaType?.startsWith('video/') ? 'Creative media MIME is not supported' : 'Creative media is invalid')
+    }
+    aggregate += item.byteSize
+    if (aggregate > limits.maxAggregateBytes) throw new Error('Creative media exceeds bounds')
+    return { ...item, bytes: Buffer.from(item.bytes) }
+  })
+  return result.sort(compareMedia)
+}
+
+function compareMedia(a: Pick<CreativeMediaDescriptor, 'slotKind' | 'position' | 'checksum'>, b: Pick<CreativeMediaDescriptor, 'slotKind' | 'position' | 'checksum'>): number {
+  const order = { structured_source: 0, structured_poster: 1, legacy: 2 }
+  return order[a.slotKind] - order[b.slotKind] || a.position - b.position || a.checksum.localeCompare(b.checksum)
 }
 
 export function validateCreativeTags(value: unknown): CreativeTags {

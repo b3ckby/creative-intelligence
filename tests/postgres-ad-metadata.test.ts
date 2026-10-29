@@ -11,6 +11,26 @@ const storedAd = {
   first_seen_at: new Date('2026-10-26T00:00:00Z'), last_seen_at: new Date('2026-10-26T00:00:00Z'),
 }
 
+test('persisted ad decoder overlays successful mirrors by exact slot without changing canonical provenance', () => {
+  const decoded = decodeAdRow({
+    ...storedAd,
+    media: [
+      { kind: 'image', sourceUrl: 'https://cdn.example.test/shared.jpg', posterUrl: null, cardIndex: 0, order: 0 },
+      { kind: 'image', sourceUrl: 'https://cdn.example.test/shared.jpg', posterUrl: null, cardIndex: 1, order: 1 },
+    ],
+    media_urls: ['https://cdn.example.test/legacy.jpg'],
+    media_mirrors: [
+      { slotKind: 'structured_source', position: 0, checksum: 'a'.repeat(64) },
+      { slotKind: 'structured_source', position: 1, checksum: 'b'.repeat(64) },
+      { slotKind: 'legacy', position: 0, checksum: 'c'.repeat(64) },
+    ],
+  })
+  assert.equal(decoded.media?.[0]?.sourceUrl, 'https://cdn.example.test/shared.jpg')
+  assert.equal(decoded.media?.[0]?.mirroredUrl, `/media/sha256/${'a'.repeat(64)}`)
+  assert.equal(decoded.media?.[1]?.mirroredUrl, `/media/sha256/${'b'.repeat(64)}`)
+  assert.deepEqual(decoded.mirroredMediaUrls, [`/media/sha256/${'c'.repeat(64)}`])
+})
+
 test('persisted ad decoder exposes expanded metadata and structured media', () => {
   const decoded = decodeAdRow({
     ...storedAd,

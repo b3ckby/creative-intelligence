@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import test from 'node:test'
 
-import { probeDatabase, verifyRuntimeDatabase, verifyScheduledWorkerDatabase, type RuntimeSqlPool } from '../../src/persistence/postgres-pool.ts'
+import { probeDatabase, verifyMediaWorkerDatabase, verifyRuntimeDatabase, verifyScheduledWorkerDatabase, type RuntimeSqlPool } from '../../src/persistence/postgres-pool.ts'
 import { withRealPostgres } from './helpers/real-postgres.ts'
 
 test('production startup validation accepts only the restricted real PostgreSQL runtime role', async () => {
@@ -20,6 +20,21 @@ test('production startup validation accepts only the restricted real PostgreSQL 
       () => verifyRuntimeDatabase(pool, 'creative_intelligence_runtime', 2_000),
       { message: 'Database startup validation failed' },
     )
+  })
+})
+
+test('media worker startup rejects direct privileges granted to its active role', async () => {
+  await withRealPostgres(async ({ mediaWorkerPool, inspectionPool }) => {
+    await verifyMediaWorkerDatabase(mediaWorkerPool as unknown as RuntimeSqlPool, 2_000)
+    await inspectionPool.query(`GRANT INSERT ON organizations TO creative_intelligence_media_worker`)
+    try {
+      await assert.rejects(
+        () => verifyMediaWorkerDatabase(mediaWorkerPool as unknown as RuntimeSqlPool, 2_000),
+        { message: 'Database startup validation failed' },
+      )
+    } finally {
+      await inspectionPool.query(`REVOKE INSERT ON organizations FROM creative_intelligence_media_worker`)
+    }
   })
 })
 

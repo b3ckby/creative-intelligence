@@ -64,5 +64,5 @@ test('Postgres creative analysis uses the database clock for lease expiry and UT
   assert.equal(pool.parameters[claimIndex]?.includes(processInstant), false)
   assert.match(pool.queries[usageIndex] ?? '', /statement_timestamp\(\) AT TIME ZONE 'UTC'/u)
   assert.equal(pool.parameters[usageIndex]?.includes(processInstant), false)
-  assert.match(pool.queries[completeIndex] ?? '', /analyzed_at = \$9, updated_at = statement_timestamp\(\)/u)
+  assert.match(pool.queries[completeIndex] ?? '', /analyzed_at = \$9,[\s\S]*updated_at = statement_timestamp\(\)/u)
 })

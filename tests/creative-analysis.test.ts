@@ -83,7 +83,7 @@ test('analysis lookup is exact by version and fingerprint so A-B-A returns A', a
   assert.equal(seen.length, 2)
   assert.equal(repository.usage, 2)
   assert.ok(repository.actors.every((actor) => actor === 'member-1'))
-  assert.deepEqual(seen[0], { advertiserName: ad.advertiserName, body: ad.body, callToAction: ad.callToAction })
+  assert.deepEqual(seen[0], { advertiserName: ad.advertiserName, body: ad.body, callToAction: ad.callToAction, mode: 'copy_only', media: [] })
 })
 
 test('analysis version and cache identity change when the configured model changes', async () => {

@@ -21,6 +21,7 @@ async function testApi(ids: string[], beforeQuery?: (sql: string) => Promise<voi
   await pool.query(await readPgMemMigration(new URL('../migrations/006_ad_intelligence.sql', import.meta.url)))
   await pool.query(await readPgMemPoint3AdEvolution())
   await pool.query(await readPgMemMigration(new URL('../migrations/008_brief_workflow.sql', import.meta.url)))
+  await pool.query(await readPgMemMigration(new URL('../migrations/014_ai_briefs_production_handoff.sql', import.meta.url)))
   const appPool = beforeQuery ? {
     query: pool.query.bind(pool),
     connect: async () => {
@@ -376,6 +377,9 @@ test('Iteration Map endpoint analyzes active briefs with shared normalization', 
   assert.equal(response.statusCode, 200)
   assert.equal(response.json().totalCombinations, 2)
   assert.deepEqual(response.json().covered[0].briefIds, ['brief-1'])
+  assert.deepEqual(response.json().covered[0].briefs, [{ id: 'brief-1', title: 'Brief', status: 'draft' }])
+  assert.equal(response.json().covered[0].briefCount, 1)
+  assert.equal(response.json().covered[0].hasMoreBriefs, false)
   assert.equal(response.json().missing[0].dimensions.audience, 'pros')
   await app.close()
   await pool.end()

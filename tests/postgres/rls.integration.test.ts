@@ -20,6 +20,8 @@ test('real PostgreSQL migrations enforce runtime RLS', async (t) => {
         ORDER BY table_name
       `)
       assert.deepEqual(tables.rows.map(({ table_name }) => table_name), [
+        'competitor_ad_bookmarks',
+        'competitor_ad_media_positions',
         'competitor_ad_sync_runs',
         'competitor_ad_sync_schedules',
         'competitor_ads',
@@ -27,13 +29,22 @@ test('real PostgreSQL migrations enforce runtime RLS', async (t) => {
         'competitors',
         'creative_ad_analyses',
         'creative_analysis_daily_usage',
+        'creative_analysis_jobs',
+        'creative_analysis_reviews',
         'creative_brief_versions',
         'creative_briefs',
+        'creative_media_blobs',
+        'inspiration_boards',
+        'inspiration_item_media',
+        'inspiration_items',
+        'media_mirror_backfill_state',
         'organization_members',
         'organizations',
         'products',
         'provider_sync_limits',
         'staging_login_attempts',
+        'winning_ad_media',
+        'winning_ads',
       ])
       const security = await inspectionPool.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>(`
         SELECT relname, relrowsecurity, relforcerowsecurity
@@ -43,9 +54,10 @@ test('real PostgreSQL migrations enforce runtime RLS', async (t) => {
       `, [[
         'organizations', 'organization_members', 'products', 'competitors', 'competitor_ads', 'creative_briefs', 'creative_brief_versions',
         'provider_sync_limits', 'creative_ad_analyses', 'creative_analysis_daily_usage', 'competitor_analytics_snapshots',
-        'competitor_ad_sync_schedules', 'competitor_ad_sync_runs',
+        'competitor_ad_sync_schedules', 'competitor_ad_sync_runs', 'competitor_ad_bookmarks', 'competitor_ad_media_positions', 'creative_analysis_jobs',
+        'creative_analysis_reviews', 'winning_ads', 'winning_ad_media', 'inspiration_boards', 'inspiration_items', 'inspiration_item_media',
       ]])
-      assert.equal(security.rowCount, 13)
+      assert.equal(security.rowCount, 22)
       assert.ok(security.rows.every(({ relrowsecurity, relforcerowsecurity }) => relrowsecurity && relforcerowsecurity))
     })
 

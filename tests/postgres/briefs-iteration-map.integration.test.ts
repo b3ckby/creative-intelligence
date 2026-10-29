@@ -52,7 +52,7 @@ test('real PostgreSQL persists tenant-safe briefs and analyzes iteration maps', 
       )`)
     })
 
-    const ids = ['brief-manual', 'brief-ad', 'brief-archived', 'brief-manual']
+    const ids = ['brief-manual', 'brief-ad', 'brief-ai', 'brief-archived', 'brief-manual']
     const briefs = new PostgresBriefRepository(runtimePool, now, () => ids.shift() ?? 'unexpected-brief')
     const manual = await briefs.createManual('admin-one', {
       organizationId: 'org-brief-one', productId: 'product-one', title: ' Manual ',
@@ -62,6 +62,21 @@ test('real PostgreSQL persists tenant-safe briefs and analyzes iteration maps', 
       organizationId: 'org-brief-one', productId: 'product-one', adId: 'ad-one',
       title: ' From ad ', dimensions: { ...dimensions, audience: 'professionals' },
     })
+    const ai = await briefs.createAiFromAd('admin-one', {
+      organizationId: 'org-brief-one', productId: 'product-one', adId: 'ad-one', title: 'AI production',
+      tags: {
+        hookCategory: 'pain_point', angle: 'emotional', emotion: 'hope', persona: 'students', format: 'ugc',
+        offerFrame: 'demo', cta: 'Install', onScreenText: 'Stay focused', visualSummary: 'Student demonstrates focused study.',
+        funnelStage: 'conversion', confidence: 0.91,
+      },
+    })
+    assert.equal(ai.details?.production.sourceAnalysis.confidence, 0.91)
+    assert.equal(ai.details?.narrative.hooks[0]?.onScreenText, 'Stay focused')
+    const aiUpdated = await briefs.update('admin-one', 'org-brief-one', ai.id, {
+      expectedVersion: 1, title: ai.title, status: 'triage', hook: ai.hook, callToAction: ai.callToAction, dimensions: ai.dimensions,
+    })
+    assert.deepEqual(aiUpdated.details, ai.details)
+    assert.deepEqual((await briefs.listVersions('admin-one', 'org-brief-one', ai.id, 100)).map(({ details }) => details), [ai.details, ai.details])
     const archived = await briefs.createManual('admin-one', {
       organizationId: 'org-brief-one', productId: 'product-one', title: ' Archived ', hook: '',
       dimensions: { ...dimensions, audience: 'archived-audience' },
@@ -89,7 +104,7 @@ test('real PostgreSQL persists tenant-safe briefs and analyzes iteration maps', 
     assert.equal(fromAd.hook, 'Winning hook')
     assert.equal(fromAd.callToAction, 'Install')
     assert.deepEqual((await briefs.pageForProduct('admin-one', 'org-brief-one', 'product-one', { limit: 100, includeArchived: true })).map(({ id }) => id),
-      ['brief-ad', 'brief-archived', 'brief-manual'])
+      ['brief-ad', 'brief-ai', 'brief-archived', 'brief-manual'])
     await assert.rejects(briefs.pageForProduct('admin-two', 'org-brief-one', 'product-one', { limit: 100, includeArchived: true }), /product does not belong/i)
     assert.equal(await briefs.findById('admin-two', 'org-brief-one', manual.id), undefined)
 

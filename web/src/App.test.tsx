@@ -9,9 +9,12 @@ import { App } from './App.tsx'
 const api: CreativeIntelligenceApi = {
   listProducts: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
   createProduct: vi.fn(), updateProduct: vi.fn(), archiveProduct: vi.fn(), restoreProduct: vi.fn(),
-  listCompetitors: vi.fn(), createCompetitor: vi.fn(), syncApifyMetaAds: vi.fn(), listAds: vi.fn(), listBriefs: vi.fn(),
-  createManualBrief: vi.fn(), createBriefFromAd: vi.fn(), updateBrief: vi.fn(), listBriefVersions: vi.fn(), analyzeIterationMap: vi.fn(),
-  getScalingAnalytics: vi.fn(), analyzeCreative: vi.fn(),
+  listCompetitors: vi.fn(), createCompetitor: vi.fn(), syncApifyMetaAds: vi.fn(), listAds: vi.fn(), setAdBookmark: vi.fn(),
+  listWinningAds: vi.fn(), getWinningAd: vi.fn(), saveWinningAd: vi.fn(), updateWinningAd: vi.fn(), archiveWinningAd: vi.fn(), removeWinningAd: vi.fn(),
+  listInspirationBoards: vi.fn(), createInspirationBoard: vi.fn(), listInspirationItems: vi.fn(), getInspirationItem: vi.fn(), createInspirationItem: vi.fn(), updateInspirationItem: vi.fn(), archiveInspirationItem: vi.fn(), removeInspirationItem: vi.fn(), listBriefs: vi.fn(),
+  createManualBrief: vi.fn(), createBriefFromAd: vi.fn(), createAiBriefFromAd: vi.fn(), getBriefHandoff: vi.fn(), updateBrief: vi.fn(), listBriefVersions: vi.fn(), analyzeIterationMap: vi.fn(),
+  getCompetitorAnalyticsHistory: vi.fn(), compareCompetitorAnalytics: vi.fn(), getScalingAnalytics: vi.fn(), analyzeCreative: vi.fn(),
+  listCreativeTagReviews: vi.fn(), getCreativeTagReview: vi.fn(), listCreativeTagReviewHistory: vi.fn(), submitCreativeTagReview: vi.fn(), getCreativeStrategy: vi.fn(),
 }
 
 afterEach(() => { cleanup(); localStorage.clear() })

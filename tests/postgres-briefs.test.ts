@@ -18,6 +18,7 @@ async function database() {
   const pool = new Pool()
   await pool.query(await readFile(new URL('../migrations/001_initial.sql', import.meta.url), 'utf8'))
   await pool.query(await readPgMemMigration(new URL('../migrations/008_brief_workflow.sql', import.meta.url)))
+  await pool.query(await readPgMemMigration(new URL('../migrations/014_ai_briefs_production_handoff.sql', import.meta.url)))
   await pool.query(`
     INSERT INTO organizations (id, name) VALUES ('org-1', 'One'), ('org-2', 'Two');
     INSERT INTO organization_members (organization_id, user_id, role) VALUES

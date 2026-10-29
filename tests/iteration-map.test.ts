@@ -47,6 +47,13 @@ test('Iteration Map reports covered and missing creative combinations', () => {
     angle: 'anti-procrastination',
     format: 'video',
   })
+  assert.deepEqual(map.covered[0]?.briefs, [{
+    id: map.covered[0]?.briefs[0]?.id,
+    title: 'Student anti-procrastination video',
+    status: 'draft',
+  }])
+  assert.equal(map.covered[0]?.briefCount, 1)
+  assert.equal(map.covered[0]?.hasMoreBriefs, false)
   assert.ok(map.missing.some((item) => item.dimensions.audience === 'professionals' && item.dimensions.angle === 'achievement'))
 })
 
@@ -135,5 +142,22 @@ test('in-memory brief lists and iteration-map brief IDs use createdAt then ID or
     organizationId: 'org-1', productId: product.id,
     axes: { audience: ['a'], market: ['m'], angle: ['x'], format: ['f'] },
   })
-  assert.deepEqual(map.covered[0]?.briefIds, ['brief-a', 'brief-b'])
+  assert.deepEqual(map.covered[0]?.briefs.map(({ id }) => id), ['brief-a', 'brief-b'])
+})
+
+test('Iteration Map bounds per-cell brief evidence while preserving the observed total', () => {
+  const ids = ['product-1', ...Array.from({ length: 27 }, (_, index) => `brief-${String(index).padStart(2, '0')}`)]
+  const app = CreativeIntelligence.inMemory({
+    now: () => new Date('2026-10-26T12:00:00.000Z'),
+    createId: () => ids.shift() ?? 'unexpected',
+  })
+  const product = app.products.create({ organizationId: 'org-1', name: 'Product', markets: [], platforms: ['web'], targetAudiences: [], uniqueSellingPoints: [] })
+  const input = { organizationId: 'org-1', productId: product.id, title: 'Brief', hook: '', dimensions: { audience: 'a', market: 'm', angle: 'x', format: 'f' } }
+  for (let index = 0; index < 27; index += 1) app.briefs.createManual({ ...input, title: `Brief ${index}` })
+
+  const map = app.iterationMap.analyze({ organizationId: 'org-1', productId: product.id, axes: { audience: ['a'], market: ['m'], angle: ['x'], format: ['f'] } })
+
+  assert.equal(map.covered[0]?.briefCount, 27)
+  assert.equal(map.covered[0]?.briefs.length, 25)
+  assert.equal(map.covered[0]?.hasMoreBriefs, true)
 })

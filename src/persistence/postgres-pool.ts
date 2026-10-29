@@ -135,6 +135,41 @@ export async function verifyRuntimeDatabase(
 }
 
 export async function verifyScheduledWorkerDatabase(pool: RuntimeSqlPool, timeoutMs: number): Promise<void> {
+  await verifyNarrowWorkerDatabase(pool, timeoutMs, 'creative_intelligence_scheduled_worker')
+}
+
+export async function verifyMediaWorkerDatabase(pool: RuntimeSqlPool, timeoutMs: number): Promise<void> {
+  await verifyNarrowWorkerDatabase(pool, timeoutMs, 'creative_intelligence_media_worker')
+}
+
+export async function verifyAnalysisWorkerDatabase(pool: RuntimeSqlPool, timeoutMs: number): Promise<void> {
+  await verifyNarrowWorkerDatabase(pool, timeoutMs, 'creative_intelligence_analysis_worker')
+}
+
+async function verifyNarrowWorkerDatabase(pool: RuntimeSqlPool, timeoutMs: number, expectedRole: 'creative_intelligence_scheduled_worker' | 'creative_intelligence_media_worker' | 'creative_intelligence_analysis_worker'): Promise<void> {
+  const allowedWorkerFunctions = expectedRole === 'creative_intelligence_scheduled_worker'
+    ? `(function_acl_owner.proname, pg_catalog.oidvectortypes(function_acl_owner.proargtypes)) IN (
+         ('app_claim_due_ad_sync_runs','text, integer, integer, integer'),
+         ('app_upsert_scheduled_competitor_ad','text, text, text, text, text, jsonb, text'),
+         ('app_retire_scheduled_competitor_ads','text, text, text, text, text[]'),
+         ('app_finish_ad_sync_run_success','text, text, text, integer, integer, integer'),
+         ('app_finish_ad_sync_run_failure','text, text, text, text, integer'),
+         ('app_lock_scheduled_ingestion_product','text, text, text'),
+         ('app_capture_scheduled_ingestion_analytics_snapshot','text, text, text')
+       )`
+    : expectedRole === 'creative_intelligence_media_worker'
+      ? `(function_acl_owner.proname, pg_catalog.oidvectortypes(function_acl_owner.proargtypes)) IN (
+         ('app_claim_media_mirror_jobs','text, integer, integer'),
+         ('app_finish_media_mirror_success','uuid, text, text, text, bigint, text'),
+         ('app_finish_media_mirror_failure','uuid, text, text, text, integer, boolean'),
+         ('app_enqueue_media_backfill','text, integer')
+       )`
+      : `(function_acl_owner.proname, pg_catalog.oidvectortypes(function_acl_owner.proargtypes)) IN (
+         ('app_claim_creative_analysis_jobs','text, integer, integer'),
+         ('app_begin_auto_analysis','uuid, text, text, text, text, text, text, text, text, integer, integer'),
+         ('app_finish_auto_analysis_success','uuid, text, text, text, text, text, jsonb'),
+         ('app_finish_auto_analysis_failure','uuid, text, text, text, text, text, text, integer, boolean')
+       )`
   try {
     const result = await withTimeout(
       boundedQuery<RoleRow>(
@@ -181,7 +216,7 @@ export async function verifyScheduledWorkerDatabase(pool: RuntimeSqlPool, timeou
                       COALESCE(database_acl_owner.datacl, pg_catalog.acldefault('d', database_acl_owner.datdba))
                     ) AS database_acl
                    WHERE database_acl_owner.datname = pg_catalog.current_database()
-                     AND database_acl.grantee = login_role.oid
+                     AND database_acl.grantee IN (login_role.oid, active_role.oid)
                      AND (database_acl.privilege_type <> 'CONNECT' OR database_acl.is_grantable)
                   UNION ALL
                   SELECT 1
@@ -191,7 +226,7 @@ export async function verifyScheduledWorkerDatabase(pool: RuntimeSqlPool, timeou
                     ) AS namespace_acl
                    WHERE namespace_acl_owner.nspname <> 'information_schema'
                      AND namespace_acl_owner.nspname !~ '^pg_'
-                     AND namespace_acl.grantee = login_role.oid
+                     AND namespace_acl.grantee IN (login_role.oid, active_role.oid)
                      AND (namespace_acl.privilege_type <> 'USAGE' OR namespace_acl.is_grantable)
                   UNION ALL
                   SELECT 1
@@ -210,7 +245,7 @@ export async function verifyScheduledWorkerDatabase(pool: RuntimeSqlPool, timeou
                    WHERE relation_namespace.nspname <> 'information_schema'
                      AND relation_namespace.nspname !~ '^pg_'
                      AND relation_acl_owner.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
-                     AND relation_acl.grantee = login_role.oid
+                     AND relation_acl.grantee IN (login_role.oid, active_role.oid)
                   UNION ALL
                   SELECT 1
                     FROM pg_catalog.pg_attribute AS column_acl_owner
@@ -224,7 +259,7 @@ export async function verifyScheduledWorkerDatabase(pool: RuntimeSqlPool, timeou
                      AND column_relation.relkind IN ('r', 'p', 'v', 'm', 'f')
                      AND column_acl_owner.attnum > 0
                      AND NOT column_acl_owner.attisdropped
-                     AND column_acl.grantee = login_role.oid
+                     AND column_acl.grantee IN (login_role.oid, active_role.oid)
                   UNION ALL
                   SELECT 1
                     FROM pg_catalog.pg_proc AS function_acl_owner
@@ -235,7 +270,13 @@ export async function verifyScheduledWorkerDatabase(pool: RuntimeSqlPool, timeou
                     ) AS function_acl
                    WHERE function_namespace.nspname <> 'information_schema'
                      AND function_namespace.nspname !~ '^pg_'
-                     AND function_acl.grantee = login_role.oid
+                     AND (
+                       function_acl.grantee = login_role.oid
+                       OR (function_acl.grantee = active_role.oid AND NOT (
+                         function_acl.privilege_type = 'EXECUTE' AND NOT function_acl.is_grantable
+                         AND function_namespace.nspname = 'public' AND (${allowedWorkerFunctions})
+                       ))
+                     )
                   UNION ALL
                   SELECT 1
                     FROM pg_catalog.pg_type AS type_acl_owner
@@ -246,19 +287,19 @@ export async function verifyScheduledWorkerDatabase(pool: RuntimeSqlPool, timeou
                     ) AS type_acl
                    WHERE type_namespace.nspname <> 'information_schema'
                      AND type_namespace.nspname !~ '^pg_'
-                     AND type_acl.grantee = login_role.oid
+                     AND type_acl.grantee IN (login_role.oid, active_role.oid)
                 ) AS has_unsafe_direct_acl,
                 EXISTS (
                   SELECT 1
                     FROM pg_catalog.pg_database AS database_owner
                    WHERE database_owner.datname = pg_catalog.current_database()
-                     AND database_owner.datdba = login_role.oid
+                     AND database_owner.datdba IN (login_role.oid, active_role.oid)
                   UNION ALL
                   SELECT 1
                     FROM pg_catalog.pg_namespace AS namespace_owner
                    WHERE namespace_owner.nspname <> 'information_schema'
                      AND namespace_owner.nspname !~ '^pg_'
-                     AND namespace_owner.nspowner = login_role.oid
+                     AND namespace_owner.nspowner IN (login_role.oid, active_role.oid)
                   UNION ALL
                   SELECT 1
                     FROM pg_catalog.pg_class AS relation_owner
@@ -267,7 +308,7 @@ export async function verifyScheduledWorkerDatabase(pool: RuntimeSqlPool, timeou
                    WHERE relation_owner_namespace.nspname <> 'information_schema'
                      AND relation_owner_namespace.nspname !~ '^pg_'
                      AND relation_owner.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
-                     AND relation_owner.relowner = login_role.oid
+                     AND relation_owner.relowner IN (login_role.oid, active_role.oid)
                   UNION ALL
                   SELECT 1
                     FROM pg_catalog.pg_proc AS function_owner
@@ -275,7 +316,7 @@ export async function verifyScheduledWorkerDatabase(pool: RuntimeSqlPool, timeou
                       ON function_owner_namespace.oid = function_owner.pronamespace
                    WHERE function_owner_namespace.nspname <> 'information_schema'
                      AND function_owner_namespace.nspname !~ '^pg_'
-                     AND function_owner.proowner = login_role.oid
+                     AND function_owner.proowner IN (login_role.oid, active_role.oid)
                   UNION ALL
                   SELECT 1
                     FROM pg_catalog.pg_type AS type_owner
@@ -283,19 +324,19 @@ export async function verifyScheduledWorkerDatabase(pool: RuntimeSqlPool, timeou
                       ON type_owner_namespace.oid = type_owner.typnamespace
                    WHERE type_owner_namespace.nspname <> 'information_schema'
                      AND type_owner_namespace.nspname !~ '^pg_'
-                     AND type_owner.typowner = login_role.oid
+                     AND type_owner.typowner IN (login_role.oid, active_role.oid)
                 ) AS has_unsafe_owner
            FROM pg_catalog.pg_roles AS active_role
            JOIN pg_catalog.pg_roles AS login_role ON login_role.rolname = session_user
            JOIN pg_catalog.pg_roles AS scheduled_worker_role
-             ON scheduled_worker_role.rolname = 'creative_intelligence_scheduled_worker'
+             ON scheduled_worker_role.rolname = '${expectedRole}'
           WHERE active_role.rolname = current_user`,
         timeoutMs,
       ),
       timeoutMs,
     )
     const role = result.rows[0]
-    if (result.rows.length !== 1 || !role || role.current_user !== 'creative_intelligence_scheduled_worker'
+    if (result.rows.length !== 1 || !role || role.current_user !== expectedRole
         || typeof role.session_user !== 'string' || role.session_user.length === 0
         || role.session_user === role.current_user
         || role.rolsuper !== false || role.rolbypassrls !== false

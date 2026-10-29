@@ -6,6 +6,8 @@ import {
   type CreateBriefFromAdInput,
   type CreateManualBriefInput,
 } from '../briefs/brief-service.ts'
+import { buildAiBriefDraft, decodeCreativeBriefDetails } from '../briefs/ai-brief.ts'
+import type { CreativeTags } from '../creative-analysis/creative-analysis-service.ts'
 import { normalizeBriefUpdate, requireBriefStatusTransition, type BriefUpdateInput } from '../briefs/brief-workflow.ts'
 import { ConflictError, DataIntegrityError, NotFoundError, ValidationError } from '../domain/errors.ts'
 import { validatePageLimit } from '../domain/page-limit.ts'
@@ -56,6 +58,27 @@ export class PostgresBriefRepository {
     }
   }
 
+  async createAiFromAd(verifiedUserId: string, input: { organizationId: string; productId: string; adId: string; title: string; tags: CreativeTags }): Promise<CreativeBrief> {
+    const normalized = normalizeBriefFromAdInput({ ...input, dimensions: { audience: 'ai', market: 'ai', angle: 'ai', format: 'ai' } })
+    try {
+      return await withVerifiedUserContext(this.pool, verifiedUserId, async (client) => {
+        const { product, ad } = await requireProductAndAd(client, normalized.organizationId, normalized.productId, normalized.adId)
+        const draft = buildAiBriefDraft(product, ad, input.tags)
+        const instant = this.now()
+        if (!Number.isFinite(instant.getTime())) throw new Error('Brief clock is invalid')
+        const createdAt = instant.toISOString()
+        return insertBrief(client, {
+          id: this.createId(), organizationId: normalized.organizationId, productId: normalized.productId,
+          title: normalized.title, status: 'draft', sourceAdId: normalized.adId, hook: draft.hook,
+          callToAction: draft.callToAction, dimensions: draft.dimensions, details: draft.details,
+          version: 1, createdAt, updatedAt: createdAt,
+        }, verifiedUserId)
+      })
+    } catch (error) {
+      throw mapInsertError(error)
+    }
+  }
+
 
   async pageForProduct(
     verifiedUserId: string,
@@ -85,7 +108,7 @@ export class PostgresBriefRepository {
       values.push(limit + 1)
       const result = await client.query<BriefRow>(
         `SELECT id, organization_id, product_id, title, status, source_ad_id,
-                hook, call_to_action, dimensions, version, created_at, updated_at, EXTRACT(EPOCH FROM created_at)::text AS cursor_created_at
+                hook, call_to_action, dimensions, details, version, created_at, updated_at, EXTRACT(EPOCH FROM created_at)::text AS cursor_created_at
          FROM creative_briefs WHERE ${predicates.join(' AND ')}
          ORDER BY created_at, id LIMIT $${values.length}`,
         values,
@@ -106,7 +129,7 @@ export class PostgresBriefRepository {
       const archivePredicate = includeArchived ? '' : "AND b.status <> 'archived' AND p.archived_at IS NULL"
       const result = await client.query<BriefRow>(
         `SELECT b.id, b.organization_id, b.product_id, b.title, b.status, b.source_ad_id,
-                b.hook, b.call_to_action, b.dimensions, b.version, b.created_at, b.updated_at
+                b.hook, b.call_to_action, b.dimensions, b.details, b.version, b.created_at, b.updated_at
          FROM creative_briefs b
          JOIN products p ON p.organization_id = b.organization_id AND p.id = b.product_id
          WHERE b.organization_id = $1 AND b.id = $2 ${archivePredicate}`,
@@ -130,7 +153,7 @@ export class PostgresBriefRepository {
     return withVerifiedUserContext(this.pool, verifiedUserId, async (client) => {
       const currentResult = await client.query<BriefRow>(
         `SELECT id, organization_id, product_id, title, status, source_ad_id, hook, call_to_action,
-                dimensions, version, created_at, updated_at
+                dimensions, details, version, created_at, updated_at
          FROM creative_briefs WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
         [organizationId, briefId],
       )
@@ -147,7 +170,7 @@ export class PostgresBriefRepository {
                 dimensions = $7::jsonb, version = version + 1, updated_at = $8
          WHERE organization_id = $1 AND id = $2 AND version = $9
          RETURNING id, organization_id, product_id, title, status, source_ad_id, hook, call_to_action,
-                   dimensions, version, created_at, updated_at`,
+                   dimensions, details, version, created_at, updated_at`,
         [organizationId, briefId, normalized.title, normalized.status, normalized.hook, normalized.callToAction,
           JSON.stringify(normalized.dimensions), updatedAt, normalized.expectedVersion],
       )
@@ -174,7 +197,7 @@ export class PostgresBriefRepository {
       if (present.rowCount !== 1) throw new NotFoundError()
       const result = await client.query<BriefVersionRow>(
         `SELECT organization_id, brief_id, product_id, version, title, status, source_ad_id,
-                hook, call_to_action, dimensions, brief_created_at, changed_by, changed_at
+                hook, call_to_action, dimensions, details, brief_created_at, changed_by, changed_at
          FROM creative_brief_versions
          WHERE organization_id = $1 AND brief_id = $2
          ORDER BY version DESC LIMIT $3`,
@@ -226,14 +249,14 @@ async function insertBrief(client: SqlConnection, brief: CreativeBrief, changedB
   const result = await client.query<BriefRow>(
     `INSERT INTO creative_briefs (
        id, organization_id, product_id, title, status, source_ad_id,
-       hook, call_to_action, dimensions, version, created_at, updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12)
+       hook, call_to_action, dimensions, details, version, created_at, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11, $12, $13)
      RETURNING id, organization_id, product_id, title, status, source_ad_id,
-               hook, call_to_action, dimensions, version, created_at, updated_at`,
+               hook, call_to_action, dimensions, details, version, created_at, updated_at`,
     [
       brief.id, brief.organizationId, brief.productId, brief.title, brief.status,
-      brief.sourceAdId, brief.hook, brief.callToAction, JSON.stringify(brief.dimensions), brief.version,
-      brief.createdAt, brief.updatedAt,
+      brief.sourceAdId, brief.hook, brief.callToAction, JSON.stringify(brief.dimensions), brief.details == null ? null : JSON.stringify(brief.details),
+      brief.version, brief.createdAt, brief.updatedAt,
     ],
   )
   const row = result.rows[0]
@@ -247,10 +270,10 @@ async function insertBriefVersion(client: SqlConnection, brief: CreativeBrief, c
   await client.query(
     `INSERT INTO creative_brief_versions (
        organization_id, brief_id, version, product_id, title, status, source_ad_id,
-       hook, call_to_action, dimensions, brief_created_at, changed_by, changed_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13)`,
+       hook, call_to_action, dimensions, details, brief_created_at, changed_by, changed_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12, $13, $14)`,
     [brief.organizationId, brief.id, brief.version, brief.productId, brief.title, brief.status,
-      brief.sourceAdId, brief.hook, brief.callToAction, JSON.stringify(brief.dimensions), brief.createdAt, changedBy, changedAt],
+      brief.sourceAdId, brief.hook, brief.callToAction, JSON.stringify(brief.dimensions), brief.details == null ? null : JSON.stringify(brief.details), brief.createdAt, changedBy, changedAt],
   )
 }
 
@@ -306,6 +329,7 @@ export type BriefRow = Record<string, unknown> & {
   hook: string
   call_to_action: string | null
   dimensions: unknown
+  details?: unknown
   version: number
   created_at: Date | string
   updated_at: Date | string
@@ -332,6 +356,7 @@ export function briefFromRow(row: BriefRow): CreativeBrief {
     createdAt: iso(row.created_at),
     updatedAt: storedTimestamp(row.updated_at, 'brief.updated_at'),
   }
+  if (row.details !== undefined && row.details !== null) brief.details = decodeCreativeBriefDetails(row.details)
   if (row.cursor_created_at === undefined) return brief
   if (typeof row.cursor_created_at !== 'string' || !/^\d{1,20}(?:\.\d{1,6})?$/.test(row.cursor_created_at)) throw storedBriefError('cursor_created_at')
   return attachExactCursorTimestamp(brief, row.cursor_created_at)
@@ -353,6 +378,7 @@ type BriefVersionRow = Record<string, unknown> & {
   hook: string
   call_to_action: string | null
   dimensions: unknown
+  details?: unknown
   brief_created_at: Date | string
   changed_by: string
   changed_at: Date | string
@@ -371,6 +397,7 @@ function briefVersionFromRow(row: BriefVersionRow): CreativeBriefVersion {
       hook: row.hook,
       call_to_action: row.call_to_action,
       dimensions: row.dimensions,
+      details: row.details,
       version: row.version,
       created_at: row.brief_created_at,
       updated_at: changedAt,
@@ -380,13 +407,18 @@ function briefVersionFromRow(row: BriefVersionRow): CreativeBriefVersion {
   }
 }
 
-function storedBriefText(value: unknown, field: string, max: number, allowEmpty: boolean): string {
+export function storedBriefText(value: unknown, field: string, max: number, allowEmpty: boolean): string {
   try {
     return validateCanonicalText(value, field, { maxLength: max, allowEmpty })
   } catch (error) {
     if (error instanceof ValidationError) throw storedBriefError(field)
     throw error
   }
+}
+
+export function decodeStoredBriefStatus(value: unknown): BriefStatus {
+  if (typeof value !== 'string' || !BRIEF_STATUSES.has(value as BriefStatus)) throw storedBriefError('status')
+  return value as BriefStatus
 }
 
 function storedBriefError(field: string): DataIntegrityError {

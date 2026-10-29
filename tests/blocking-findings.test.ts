@@ -23,6 +23,7 @@ async function testApi(ids = ['org-1', 'product-1', 'competitor-1', 'ad-1', 'ad-
   await pool.query(await readPgMemMigration(new URL('../migrations/006_ad_intelligence.sql', import.meta.url)))
   await pool.query(await readPgMemPoint3AdEvolution())
   await pool.query(await readPgMemMigration(new URL('../migrations/008_brief_workflow.sql', import.meta.url)))
+  await pool.query(await readPgMemMigration(new URL('../migrations/014_ai_briefs_production_handoff.sql', import.meta.url)))
   const app = buildApi({
     pool,
     cursorSigningKey: 'test-cursor-signing-key-at-least-32-bytes',

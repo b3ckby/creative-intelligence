@@ -12,14 +12,21 @@ import type { RuntimeConfig } from './config/runtime-config.ts'
 import { buildApi } from './http/build-api.ts'
 import { GeminiCreativeTagger } from './creative-analysis/gemini-creative-tagger.ts'
 import { schemaFor } from './http/schemas.ts'
-import { checkDatabaseReadiness, createPostgresPool, verifyRuntimeDatabase, verifyScheduledWorkerDatabase, type RuntimeSqlPool } from './persistence/postgres-pool.ts'
+import { checkDatabaseReadiness, createPostgresPool, verifyAnalysisWorkerDatabase, verifyRuntimeDatabase, verifyScheduledWorkerDatabase, type RuntimeSqlPool } from './persistence/postgres-pool.ts'
 import { PostgresStagingLoginRateLimiter } from './persistence/postgres-staging-login-rate-limiter.ts'
 import { PostgresScaleAnalyticsService } from './persistence/postgres-scale-analytics-service.ts'
+import { PostgresCompetitorAnalyticsService } from './persistence/postgres-competitor-analytics-service.ts'
 import { PostgresCreativeAnalysisService } from './persistence/postgres-creative-analysis-service.ts'
+import { PostgresCreativeStrategyService } from './persistence/postgres-creative-strategy-service.ts'
 import { PostgresProviderAdImportService } from './persistence/postgres-provider-ad-import-service.ts'
 import { PostgresScheduledAdSyncService, type ClaimedAdSyncRun } from './persistence/postgres-scheduled-ad-sync-service.ts'
 import { ScheduledProviderSyncWorker } from './scheduling/scheduled-provider-sync-worker.ts'
 import { withVerifiedUserReadContext } from './persistence/verified-user-context.ts'
+import { LocalContentAddressedMediaStore } from './media/content-addressed-store.ts'
+import { SafeMediaFetcher } from './media/safe-media-fetcher.ts'
+import { PostgresMediaMirrorService, type ClaimedMediaMirrorJob } from './media/postgres-media-mirror-service.ts'
+import { verifyMediaWorkerDatabase } from './persistence/postgres-pool.ts'
+import { PostgresAutoAnalysisService, type ClaimedCreativeAnalysisJob } from './creative-analysis/postgres-auto-analysis-service.ts'
 
 export interface ProductionAppDependencies extends OidcAuthenticatorDependencies {
   createPool?: (config: RuntimeConfig['database']) => RuntimeSqlPool
@@ -39,6 +46,8 @@ export async function createProductionApp(
 ): Promise<FastifyInstance> {
   const pool = (dependencies.createPool ?? createPostgresPool)(config.database)
   let workerPool: RuntimeSqlPool | undefined
+  let mediaWorkerPool: RuntimeSqlPool | undefined
+  let analysisWorkerPool: RuntimeSqlPool | undefined
   try {
     await verifyRuntimeDatabase(pool, config.database.expectedRole, config.database.connectTimeoutMs)
     const oidcDependencies = Object.fromEntries(Object.entries({
@@ -50,6 +59,8 @@ export async function createProductionApp(
     const now = dependencies.now ?? (() => new Date())
     const createId = dependencies.createId ?? randomUUID
     const readSecretFile = dependencies.readSecretFile ?? (async (path: string) => await readFile(path, 'utf8'))
+    const mediaStore = config.mediaMirror ? new LocalContentAddressedMediaStore(config.mediaMirror.storageRoot) : undefined
+    await mediaStore?.ready()
     let stagingLogin: StagingPasswordLogin | undefined
     let stagingOrganizationId: string | undefined
     if (config.stagingLogin) {
@@ -91,17 +102,20 @@ export async function createProductionApp(
       }
     }
     let creativeAnalysis: PostgresCreativeAnalysisService | undefined
+    let creativeTagger: GeminiCreativeTagger | undefined
     if (config.creativeAnalysis) {
       const apiKey = (await readSecretFile(config.creativeAnalysis.apiKeyFile)).trim()
-      const tagger = new GeminiCreativeTagger({
+      creativeTagger = new GeminiCreativeTagger({
         apiKey,
         model: config.creativeAnalysis.model,
         timeoutMs: config.creativeAnalysis.timeoutMs,
         maxConcurrency: config.creativeAnalysis.maxConcurrency,
+        maxMediaCount: config.creativeAnalysis.maxMediaCount,
+        maxMediaBytes: config.creativeAnalysis.maxMediaBytes,
       }, {
         ...(dependencies.fetch ? { fetch: dependencies.fetch } : {}),
       })
-      creativeAnalysis = new PostgresCreativeAnalysisService(pool, tagger, now, config.creativeAnalysis.dailyLimit)
+      creativeAnalysis = new PostgresCreativeAnalysisService(pool, creativeTagger, now, config.creativeAnalysis.dailyLimit, mediaStore)
     }
     const apifyGate = new ApifyRequestGate(config.apify.maxConcurrency)
     const app = buildApi({
@@ -114,12 +128,16 @@ export async function createProductionApp(
       createId,
       now,
       scaleAnalytics: new PostgresScaleAnalyticsService(pool, now),
+      competitorAnalytics: new PostgresCompetitorAnalyticsService(pool),
+      creativeStrategy: new PostgresCreativeStrategyService(pool),
       ...(creativeAnalysis ? { creativeAnalysis } : {}),
       apify: {
         ...config.apify,
         ...(dependencies.fetch ? { fetch: dependencies.fetch } : {}),
       },
       apifyGate,
+      mediaMirrors: config.mediaMirror !== undefined,
+      adLibraryDiscovery: true,
     })
     let scheduledWorker: ScheduledProviderSyncWorker<ClaimedAdSyncRun> | undefined
     if (config.scheduledSync) {
@@ -165,6 +183,69 @@ export async function createProductionApp(
         : new ScheduledProviderSyncWorker(options)
       app.addHook('onReady', async () => { void scheduledWorker?.start() })
     }
+    let mediaWorker: ScheduledProviderSyncWorker<ClaimedMediaMirrorJob> | undefined
+    if (config.mediaMirror) {
+      const settings = config.mediaMirror
+      const store = mediaStore!
+      mediaWorkerPool = (dependencies.createPool ?? createPostgresPool)({
+        ...config.database, url: settings.workerDatabase.url, expectedRole: settings.workerDatabase.expectedRole,
+      })
+      await verifyMediaWorkerDatabase(mediaWorkerPool, config.database.connectTimeoutMs)
+      const media = new PostgresMediaMirrorService(mediaWorkerPool, randomUUID(), settings, {
+        fetcher: new SafeMediaFetcher(undefined, { maxRedirects: settings.maxRedirects, maxBytes: settings.maxBytes, timeoutMs: settings.fetchTimeoutMs }),
+        store,
+      })
+      let backfillComplete = false
+      mediaWorker = new ScheduledProviderSyncWorker({
+        intervalMs: settings.intervalMs,
+        concurrency: settings.concurrency,
+        batchSize: settings.batchSize,
+        poll: async () => {
+          if (!backfillComplete) {
+            const page = await media.backfill()
+            backfillComplete = page.nextCursor === null
+          }
+          return await media.claim()
+        },
+        run: async (job) => await media.run(job),
+        onPollError: () => { app.log.error({ event: 'media_worker_error', category: 'poll_failed' }) },
+        onRunError: () => { app.log.error({ event: 'media_worker_error', category: 'run_failed' }) },
+      })
+      app.get('/media/sha256/:checksum', {
+        schema: { security: [], params: { type: 'object', additionalProperties: false, required: ['checksum'], properties: { checksum: { type: 'string', pattern: '^[a-f0-9]{64}$' } } } },
+      }, async (request, reply) => {
+        try {
+          const mediaObject = await store.read((request.params as { checksum: string }).checksum)
+          return reply.headers({
+            'content-type': mediaObject.mediaType, 'content-length': String(mediaObject.byteSize),
+            'cache-control': 'public, max-age=31536000, immutable', 'x-content-type-options': 'nosniff',
+            'content-security-policy': "default-src 'none'; sandbox",
+          }).send(mediaObject.bytes)
+        } catch {
+          return reply.code(404).send({ error: 'Not found' })
+        }
+      })
+      app.addHook('onReady', async () => { void mediaWorker?.start() })
+    }
+    let analysisWorker: ScheduledProviderSyncWorker<ClaimedCreativeAnalysisJob> | undefined
+    if (config.creativeAnalysis?.autoTagging && creativeTagger && mediaStore) {
+      const settings = config.creativeAnalysis.autoTagging
+      analysisWorkerPool = (dependencies.createPool ?? createPostgresPool)({
+        ...config.database, url: settings.workerDatabase.url, expectedRole: settings.workerDatabase.expectedRole,
+      })
+      await verifyAnalysisWorkerDatabase(analysisWorkerPool, config.database.connectTimeoutMs)
+      const automatic = new PostgresAutoAnalysisService(analysisWorkerPool, mediaStore, creativeTagger, randomUUID(), {
+        ...settings, dailyLimit: config.creativeAnalysis.dailyLimit,
+        maxMediaCount: config.creativeAnalysis.maxMediaCount, maxMediaBytes: config.creativeAnalysis.maxMediaBytes,
+      })
+      analysisWorker = new ScheduledProviderSyncWorker({
+        intervalMs: settings.intervalMs, concurrency: settings.concurrency, batchSize: settings.batchSize,
+        poll: async () => await automatic.claim(), run: async (job) => await automatic.run(job),
+        onPollError: () => { app.log.error({ event: 'analysis_worker_error', category: 'poll_failed' }) },
+        onRunError: () => { app.log.error({ event: 'analysis_worker_error', category: 'run_failed' }) },
+      })
+      app.addHook('onReady', async () => { void analysisWorker?.start() })
+    }
     let readinessProbe: Promise<boolean> | undefined
     const checkReadiness = dependencies.readinessCheck ?? (async () => await checkDatabaseReadiness(config.database))
     const ready = (): Promise<boolean> => {
@@ -176,18 +257,20 @@ export async function createProductionApp(
 
     app.get('/health/live', { schema: schemaFor('getLiveness') }, async () => ({ status: 'ok' }))
     app.get('/health/ready', { schema: schemaFor('getReadiness') }, async (_request, reply) => {
-      const workerState = scheduledWorker?.state()
-      const workerReady = !workerState || (workerState.firstSuccessfulPollAt !== null && workerState.currentFailure === null)
+      const workerStates = [scheduledWorker?.state(), mediaWorker?.state(), analysisWorker?.state()].filter((state) => state !== undefined)
+      const workerReady = workerStates.every((state) => state.firstSuccessfulPollAt !== null && state.currentFailure === null)
       const isReady = workerReady && await ready()
       return reply.code(isReady ? 200 : 503).send({ status: isReady ? 'ready' : 'not_ready' })
     })
     app.addHook('onClose', async () => {
       await scheduledWorker?.stop()
-      await Promise.all([pool.end(), workerPool?.end()])
+      await mediaWorker?.stop()
+      await analysisWorker?.stop()
+      await Promise.all([pool.end(), workerPool?.end(), mediaWorkerPool?.end(), analysisWorkerPool?.end()])
     })
     return app
   } catch (error) {
-    await Promise.all([pool.end().catch(() => undefined), workerPool?.end().catch(() => undefined)])
+    await Promise.all([pool.end().catch(() => undefined), workerPool?.end().catch(() => undefined), mediaWorkerPool?.end().catch(() => undefined), analysisWorkerPool?.end().catch(() => undefined)])
     throw error
   }
 }

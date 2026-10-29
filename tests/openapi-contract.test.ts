@@ -27,14 +27,38 @@ const EXPECTED_OPERATIONS = [
   'POST /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/apify-meta/sync',
   'GET /organizations/{organizationId}/competitors/{competitorId}/ads',
   'GET /organizations/{organizationId}/ads',
+  'POST /organizations/{organizationId}/ads/{adId}/bookmark',
+  'POST /organizations/{organizationId}/winning-ads',
+  'GET /organizations/{organizationId}/winning-ads',
+  'GET /organizations/{organizationId}/winning-ads/{winningAdId}',
+  'PATCH /organizations/{organizationId}/winning-ads/{winningAdId}',
+  'POST /organizations/{organizationId}/winning-ads/{winningAdId}/archive',
+  'DELETE /organizations/{organizationId}/winning-ads/{winningAdId}',
+  'POST /organizations/{organizationId}/inspiration/boards',
+  'GET /organizations/{organizationId}/inspiration/boards',
+  'POST /organizations/{organizationId}/inspiration/boards/{boardId}/items',
+  'GET /organizations/{organizationId}/inspiration/items',
+  'GET /organizations/{organizationId}/inspiration/items/{itemId}',
+  'PATCH /organizations/{organizationId}/inspiration/items/{itemId}',
+  'POST /organizations/{organizationId}/inspiration/items/{itemId}/archive',
+  'DELETE /organizations/{organizationId}/inspiration/items/{itemId}',
+  'GET /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/analytics/history',
+  'POST /organizations/{organizationId}/products/{productId}/analytics/comparison',
   'GET /organizations/{organizationId}/products/{productId}/analytics/scaling',
   'POST /organizations/{organizationId}/products/{productId}/ads/{adId}/creative-analysis',
+  'GET /organizations/{organizationId}/creative-tag-reviews',
+  'GET /organizations/{organizationId}/ads/{adId}/creative-tag-review',
+  'GET /organizations/{organizationId}/ads/{adId}/creative-tag-review/history',
+  'POST /organizations/{organizationId}/ads/{adId}/creative-tag-review',
+  'GET /organizations/{organizationId}/products/{productId}/competitors/{competitorId}/creative-strategy',
   'POST /organizations/{organizationId}/products/{productId}/briefs/from-ad',
+  'POST /organizations/{organizationId}/products/{productId}/briefs/from-ad/ai',
   'POST /organizations/{organizationId}/products/{productId}/briefs',
   'GET /organizations/{organizationId}/products/{productId}/briefs',
   'GET /organizations/{organizationId}/briefs/{briefId}',
   'PATCH /organizations/{organizationId}/briefs/{briefId}',
   'GET /organizations/{organizationId}/briefs/{briefId}/versions',
+  'GET /organizations/{organizationId}/briefs/{briefId}/handoff',
   'POST /organizations/{organizationId}/products/{productId}/iteration-map/analyze',
 ].sort()
 
@@ -185,6 +209,8 @@ test('operation contracts list only endpoint-reachable error statuses', () => {
   assert.deepEqual(Object.keys(byId.upsertAdSyncSchedule!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 409, 413, 415, 500])
   assert.deepEqual(Object.keys(byId.updateAdSyncSchedule!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 413, 415, 500])
   assert.deepEqual(Object.keys(byId.disableAdSyncSchedule!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 413, 415, 500])
+  assert.deepEqual(Object.keys(byId.getCompetitorAnalyticsHistory!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 500, 503])
+  assert.deepEqual(Object.keys(byId.compareCompetitorAnalytics!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 413, 415, 500, 503])
   assert.deepEqual(Object.keys(byId.getScalingAnalytics!.schema.response).map(Number).sort((a, b) => a - b), [200, 400, 401, 403, 404, 500])
   for (const operationId of ['createBriefFromAd', 'createManualBrief', 'listBriefs', 'getBrief', 'analyzeIterationMap']) {
     assert.equal(byId[operationId]!.schema.response[403], undefined, operationId)
@@ -222,7 +248,7 @@ test('package lifecycle checks generated contract drift and API guide documents 
   assert.doesNotMatch(guide, /x-user-id|client_secret|postgresql:\/\//i)
   for (const fragment of ['ad-sync-schedule', 'tenant administrator', 'partial', 'generated ID collision', 'worker readiness']) assert.match(guide, new RegExp(fragment, 'i'))
   const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8')
-  for (const fragment of ['009_scheduled_provider_sync.sql', 'four fixed cluster roles', 'creative_intelligence_scheduled_worker', 'AD_SYNC_WORKER_DATABASE_URL']) assert.match(readme, new RegExp(fragment, 'i'))
+  for (const fragment of ['009_scheduled_provider_sync.sql', '011_durable_media_mirror.sql', 'five fixed cluster roles', 'creative_intelligence_scheduled_worker', 'creative_intelligence_media_worker', 'AD_SYNC_WORKER_DATABASE_URL', 'MEDIA_MIRROR_WORKER_DATABASE_URL']) assert.match(readme, new RegExp(fragment, 'i'))
   const environment = await readFile(new URL('../.env.example', import.meta.url), 'utf8')
-  for (const name of ['AD_SYNC_ENABLED', 'AD_SYNC_INTERVAL_MS', 'AD_SYNC_LEASE_SECONDS', 'AD_SYNC_MAX_ATTEMPTS', 'AD_SYNC_BACKOFF_BASE_MS', 'AD_SYNC_BACKOFF_MAX_MS', 'AD_SYNC_BATCH_SIZE', 'AD_SYNC_CONCURRENCY', 'AD_SYNC_WORKER_DATABASE_URL', 'AD_SYNC_WORKER_DATABASE_ROLE']) assert.match(environment, new RegExp(`^# ${name}=`, 'm'))
+  for (const name of ['AD_SYNC_ENABLED', 'AD_SYNC_INTERVAL_MS', 'AD_SYNC_LEASE_SECONDS', 'AD_SYNC_MAX_ATTEMPTS', 'AD_SYNC_BACKOFF_BASE_MS', 'AD_SYNC_BACKOFF_MAX_MS', 'AD_SYNC_BATCH_SIZE', 'AD_SYNC_CONCURRENCY', 'AD_SYNC_WORKER_DATABASE_URL', 'AD_SYNC_WORKER_DATABASE_ROLE', 'MEDIA_MIRROR_ENABLED', 'MEDIA_MIRROR_STORAGE_ROOT', 'MEDIA_MIRROR_WORKER_DATABASE_URL', 'MEDIA_MIRROR_WORKER_DATABASE_ROLE']) assert.match(environment, new RegExp(`^# ${name}=`, 'm'))
 })

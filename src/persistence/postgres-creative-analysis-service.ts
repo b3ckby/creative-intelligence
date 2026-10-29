@@ -4,12 +4,14 @@ import {
   CreativeAnalysisService,
   type CreativeAnalysisRecord,
   type CreativeAnalysisRepository,
+  type CreativeMediaDescriptor,
   type CreativeTagger,
   validateCreativeTags,
 } from '../creative-analysis/creative-analysis-service.ts'
 import { ApplicationError, ConflictError, NotFoundError } from '../domain/errors.ts'
 import { validateIdentifier } from '../domain/identifiers.ts'
 import type { CompetitorAd } from '../domain/types.ts'
+import type { MediaStore } from '../media/content-addressed-store.ts'
 import { decodeAdRow, storedTimestamp } from './catalog-row-decoders.ts'
 import type { SqlPool } from './postgres-organization-repository.ts'
 import { withVerifiedUserContext, withVerifiedUserReadContext } from './verified-user-context.ts'
@@ -25,12 +27,15 @@ interface AnalysisRow extends Record<string, unknown> {
   input_fingerprint: unknown
   tags: unknown
   analyzed_at: unknown
+  provenance: unknown
+  analysis_mode: unknown
+  media_count: unknown
 }
 
 export class PostgresCreativeAnalysisService {
   private readonly service: CreativeAnalysisService
 
-  constructor(pool: SqlPool, tagger: CreativeTagger, now: () => Date, dailyLimit: number) {
+  constructor(pool: SqlPool, tagger: CreativeTagger, now: () => Date, dailyLimit: number, private readonly mediaStore?: MediaStore) {
     this.service = new CreativeAnalysisService(new PostgresCreativeAnalysisRepository(pool, dailyLimit), tagger, now)
     this.pool = pool
   }
@@ -56,7 +61,22 @@ export class PostgresCreativeAnalysisService {
       if (!row) throw new NotFoundError()
       return decodeAdRow(row)
     })
-    return this.service.analyze(actorUserId, ad)
+    const media = this.mediaStore ? await this.loadMedia(actorUserId, organizationId, adId) : []
+    return this.service.analyze(actorUserId, ad, media)
+  }
+
+  private async loadMedia(actorUserId: string, organizationId: string, adId: string): Promise<CreativeMediaDescriptor[]> {
+    const rows = await withVerifiedUserReadContext(this.pool, actorUserId, async (connection) => (await connection.query<{
+      slot_kind: CreativeMediaDescriptor['slotKind']; media_position: number; checksum: string; media_type: CreativeMediaDescriptor['mediaType']; byte_size: string | number
+    }>('SELECT * FROM app_get_creative_analysis_media($1,$2,$3)', [organizationId, adId, 4])).rows)
+    const loaded: CreativeMediaDescriptor[] = []
+    for (const row of rows) {
+      const stored = await this.mediaStore!.read(row.checksum)
+      const byteSize = Number(row.byte_size)
+      if (stored.mediaType !== row.media_type || stored.byteSize !== byteSize) throw new Error('Mirrored media metadata mismatch')
+      loaded.push({ slotKind: row.slot_kind, position: row.media_position, checksum: row.checksum, mediaType: row.media_type, byteSize, bytes: stored.bytes })
+    }
+    return loaded
   }
 }
 
@@ -69,7 +89,7 @@ class PostgresCreativeAnalysisRepository implements CreativeAnalysisRepository {
     return withVerifiedUserReadContext(this.pool, actorUserId, async (connection) => {
       const result = await connection.query<AnalysisRow>(
         `SELECT organization_id, product_id, competitor_ad_id, analysis_version, model_provider,
-                model_name, prompt_version, input_fingerprint, tags, analyzed_at
+                model_name, prompt_version, input_fingerprint, tags, analyzed_at, provenance, analysis_mode, media_count
          FROM creative_ad_analyses
          WHERE organization_id = $1 AND product_id = $2 AND competitor_ad_id = $3
            AND analysis_version = $4 AND input_fingerprint = $5 AND status = 'completed'
@@ -141,11 +161,13 @@ class PostgresCreativeAnalysisRepository implements CreativeAnalysisRepository {
       const result = await connection.query(
         `UPDATE creative_ad_analyses
          SET model_provider = $5, model_name = $6, prompt_version = $7, status = 'completed',
-             claim_token = NULL, claim_expires_at = NULL, tags = $8::jsonb, analyzed_at = $9, updated_at = statement_timestamp()
+             claim_token = NULL, claim_expires_at = NULL, tags = $8::jsonb, analyzed_at = $9,
+             provenance = $12, analysis_mode = $13, media_count = $14, failure_category = NULL, updated_at = statement_timestamp()
          WHERE organization_id = $1 AND product_id = $2 AND competitor_ad_id = $3
            AND analysis_version = $4 AND input_fingerprint = $10 AND status = 'pending' AND claim_token = $11`,
         [record.organizationId, record.productId, record.competitorAdId, record.analysisVersion,
-          record.modelProvider, record.modelName, record.promptVersion, JSON.stringify(record.tags), record.analyzedAt, record.inputFingerprint, claimToken],
+          record.modelProvider, record.modelName, record.promptVersion, JSON.stringify(record.tags), record.analyzedAt, record.inputFingerprint, claimToken,
+          record.provenance, record.analysisMode, record.mediaCount],
       )
       if (result.rowCount !== 1) throw new Error('Creative analysis claim was lost')
     })
@@ -171,7 +193,19 @@ function decodeAnalysisRow(row: AnalysisRow): CreativeAnalysisRecord {
     analysisVersion: bounded(row.analysis_version, 128), modelProvider: bounded(row.model_provider, 64), modelName: bounded(row.model_name, 200),
     promptVersion: bounded(row.prompt_version, 128), inputFingerprint: fingerprint(row.input_fingerprint), tags: validateCreativeTags(row.tags),
     analyzedAt: storedTimestamp(row.analyzed_at, 'creative_analysis.analyzed_at'),
+    provenance: enumStored(row.provenance, ['manual', 'automatic'] as const),
+    analysisMode: enumStored(row.analysis_mode, ['media', 'copy_only'] as const),
+    mediaCount: storedInteger(row.media_count, 0, 16),
   }
+}
+function enumStored<const T extends readonly string[]>(value: unknown, values: T): T[number] {
+  if (typeof value !== 'string' || !values.includes(value)) throw new Error('Stored creative analysis is invalid')
+  return value as T[number]
+}
+function storedInteger(value: unknown, minimum: number, maximum: number): number {
+  const parsed = typeof value === 'string' && /^\d+$/u.test(value) ? Number(value) : value
+  if (!Number.isSafeInteger(parsed) || (parsed as number) < minimum || (parsed as number) > maximum) throw new Error('Stored creative analysis is invalid')
+  return parsed as number
 }
 function identifier(value: unknown): string { return validateIdentifier(value, 'Stored creative analysis ID') }
 function bounded(value: unknown, maximum: number): string {

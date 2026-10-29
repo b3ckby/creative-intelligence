@@ -69,17 +69,25 @@ test('real PostgreSQL creative analysis leases and accounting fail closed', asyn
     }, () => instant, 20)
     await succeeds.analyze('user-ai', 'org-ai', 'product-ai', 'ad-ai')
 
-    const staleToken = 'a'.repeat(64)
     await withVerifiedUserContext(runtimePool, 'user-ai', async (connection) => {
-      await connection.query(`UPDATE creative_ad_analyses SET status = 'pending', tags = NULL, analyzed_at = NULL,
-        claim_token = $1, claim_expires_at = $2, model_provider = 'pending', model_name = 'pending', prompt_version = 'pending'
-        WHERE competitor_ad_id = 'ad-ai' AND analyzed_at = $3`, [staleToken, '2026-10-27T11:00:00.000Z', instant.toISOString()])
+      await connection.query(`UPDATE competitor_ads SET body = 'expired lease' WHERE id = 'ad-ai'`)
+    })
+    let releaseExpired!: () => void
+    let enteredExpired!: () => void
+    const expiredGate = new Promise<void>((resolve) => { releaseExpired = resolve })
+    const expiredEntered = new Promise<void>((resolve) => { enteredExpired = resolve })
+    const expiredWorker = new PostgresCreativeAnalysisService(runtimePool, {
+      provider: 'gemini', model: 'gemini-test', async analyze() { enteredExpired(); await expiredGate; return tags },
+    }, () => instant, 20)
+    const staleAttempt = expiredWorker.analyze('user-ai', 'org-ai', 'product-ai', 'ad-ai')
+    await expiredEntered
+    await withVerifiedUserContext(runtimePool, 'user-ai', async (connection) => {
+      await connection.query(`UPDATE creative_ad_analyses SET claim_expires_at = $1
+        WHERE competitor_ad_id = 'ad-ai' AND status = 'pending'`, ['2026-10-27T11:00:00.000Z'])
     })
     await succeeds.analyze('user-ai', 'org-ai', 'product-ai', 'ad-ai')
-    const staleWrite = await withVerifiedUserContext(runtimePool, 'user-ai', async (connection) => connection.query(`UPDATE creative_ad_analyses
-      SET status = 'failed', tags = NULL, analyzed_at = NULL, claim_token = NULL, claim_expires_at = NULL
-      WHERE competitor_ad_id = 'ad-ai' AND status = 'pending' AND claim_token = $1`, [staleToken]))
-    assert.equal(staleWrite.rowCount, 0)
+    releaseExpired()
+    await assert.rejects(staleAttempt, /Creative analysis claim was lost/u)
 
     await withVerifiedUserContext(runtimePool, 'user-ai', async (connection) => {
       await connection.query(`UPDATE competitor_ads SET body = 'concurrent' WHERE id = 'ad-ai'`)
@@ -103,6 +111,6 @@ test('real PostgreSQL creative analysis leases and accounting fail closed', asyn
       WHERE a.competitor_ad_id = 'ad-ai' AND a.status = 'completed'
       ORDER BY a.created_at DESC LIMIT 1`))
     assert.equal(state.rows[0]?.status, 'completed')
-    assert.equal(state.rows[0]?.usage_count, 5)
+    assert.equal(state.rows[0]?.usage_count, 6)
   })
 })

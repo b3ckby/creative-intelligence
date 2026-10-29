@@ -11,6 +11,75 @@ const connection = {
 describe('Creative Intelligence API client', () => {
   afterEach(() => vi.unstubAllGlobals())
 
+  it('strictly decodes Inspiration boards and items and builds bounded trusted-source routes', async () => {
+    const board = { id: 'board-1', organizationId: 'org / north', name: 'Launch worlds', description: '', version: 1, archivedAt: null, createdAt: '2026-10-28T10:00:00.000Z', updatedAt: '2026-10-28T10:00:00.000Z' }
+    const item = {
+      id: 'inspiration-1', organizationId: 'org / north', boardId: board.id, sourceKind: 'competitor_ad', sourceId: 'ad-1', title: 'Kinetic proof', notes: '', tags: ['motion'],
+      source: { provider: 'manual-meta', platform: 'meta', externalId: 'external-1', url: 'https://example.test/ad', advertiserName: 'Orbit' },
+      copy: { body: 'Ship faster.', headline: 'Move faster' },
+      media: [{ position: 0, kind: 'image', mediaType: 'image/png', checksum: 'a'.repeat(64), url: `/media/sha256/${'a'.repeat(64)}` }],
+      version: 1, archivedAt: null, createdAt: '2026-10-28T10:00:00.000Z', updatedAt: '2026-10-28T10:00:00.000Z',
+    }
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ items: [board], nextCursor: null }))
+      .mockResolvedValueOnce(jsonResponse({ items: [item], nextCursor: null }))
+      .mockResolvedValueOnce(jsonResponse(item))
+      .mockResolvedValueOnce(jsonResponse({ items: [{ ...item, media: [{ ...item.media[0], url: 'https://evil.test/x' }] }], nextCursor: null }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = createApiClient(connection)
+    await expect(client.listInspirationBoards()).resolves.toEqual({ items: [board], nextCursor: null })
+    await expect(client.listInspirationItems({ boardId: board.id, search: 'proof', tag: 'motion', sourceKind: 'competitor_ad', sort: 'updated_desc' })).resolves.toEqual({ items: [item], nextCursor: null })
+    await expect(client.updateInspirationItem(item.id, { expectedVersion: 1, boardId: board.id, title: item.title, notes: '', tags: ['motion'] })).resolves.toEqual(item)
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ['https://api.example.test/organizations/org%20%2F%20north/inspiration/boards?limit=100', 'GET'],
+      ['https://api.example.test/organizations/org%20%2F%20north/inspiration/items?limit=100&boardId=board-1&search=proof&tag=motion&sourceKind=competitor_ad&sort=updated_desc', 'GET'],
+      ['https://api.example.test/organizations/org%20%2F%20north/inspiration/items/inspiration-1', 'PATCH'],
+    ])
+    await expect(client.listInspirationItems()).rejects.toEqual(new ApiError(502, 'The API returned an invalid response'))
+  })
+
+  it('strictly decodes Winning Ads and uses bounded lifecycle routes', async () => {
+    const item = {
+      id: 'winning-1', organizationId: 'org / north', sourceAdId: 'ad-1', title: 'Launch reference', category: 'modern', notes: '',
+      source: { provider: 'manual-meta', platform: 'meta', externalId: 'external-1', url: 'https://example.test/ad', advertiserName: 'Orbit', isActive: true },
+      copy: { body: 'Ship faster.', headline: 'Move faster', description: null, callToAction: 'Learn more' },
+      media: [{ position: 0, kind: 'image', mediaType: 'image/png', checksum: 'a'.repeat(64), url: `/media/sha256/${'a'.repeat(64)}` }],
+      analysis: null, version: 1, archivedAt: null, createdAt: '2026-10-28T10:00:00.000Z', updatedAt: '2026-10-28T10:00:00.000Z',
+    }
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ items: [item], nextCursor: null }))
+      .mockResolvedValueOnce(jsonResponse(item))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(jsonResponse({ items: [{ ...item, category: 'retro' }], nextCursor: null }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = createApiClient(connection)
+    await expect(client.listWinningAds({ search: 'launch', category: 'modern', active: true })).resolves.toEqual({ items: [item], nextCursor: null })
+    await expect(client.updateWinningAd('winning/1', { expectedVersion: 1, title: 'Launch reference', category: 'modern', notes: '' })).resolves.toEqual(item)
+    await expect(client.removeWinningAd('winning/1')).resolves.toBeUndefined()
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ['https://api.example.test/organizations/org%20%2F%20north/winning-ads?limit=100&search=launch&category=modern&active=true', 'GET'],
+      ['https://api.example.test/organizations/org%20%2F%20north/winning-ads/winning%2F1', 'PATCH'],
+      ['https://api.example.test/organizations/org%20%2F%20north/winning-ads/winning%2F1', 'DELETE'],
+    ])
+    await expect(client.listWinningAds()).rejects.toEqual(new ApiError(502, 'The API returned an invalid response'))
+  })
+
+  it('strictly decodes bounded Iteration Map brief evidence', async () => {
+    const dimensions = { audience: 'Teams', market: 'US', angle: 'Speed', format: 'Video' }
+    const covered = { dimensions, briefIds: ['brief-1'], briefs: [{ id: 'brief-1', title: 'Move quickly', status: 'production' }], briefCount: 1, hasMoreBriefs: false }
+    const missing = { dimensions: { ...dimensions, angle: 'Proof' }, briefIds: [], briefs: [], briefCount: 0, hasMoreBriefs: false }
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ totalCombinations: 2, covered: [covered], missing: [missing] }))
+      .mockResolvedValueOnce(jsonResponse({ totalCombinations: 1, covered: [{ ...covered, briefCount: 0 }], missing: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = createApiClient(connection)
+
+    await expect(client.analyzeIterationMap('product/one', { audience: ['Teams'], market: ['US'], angle: ['Speed', 'Proof'], format: ['Video'] }))
+      .resolves.toEqual({ totalCombinations: 2, covered: [covered], missing: [missing] })
+    await expect(client.analyzeIterationMap('product/one', { audience: ['Teams'], market: ['US'], angle: ['Speed'], format: ['Video'] }))
+      .rejects.toEqual(new ApiError(502, 'The API returned an invalid response'))
+  })
+
   it('exchanges the staging password without sending an authorization header', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ accessToken: 'signed.jwt.value', organizationId: 'staging-org' }))
     vi.stubGlobal('fetch', fetchMock)
@@ -37,15 +106,25 @@ describe('Creative Intelligence API client', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const client = createApiClient(connection)
-    await client.listAds({ productId: 'product/one', competitorId: 'competitor two', isActive: true, provider: 'manual-meta' })
+    await client.listAds({ productId: 'product/one', competitorId: 'competitor two', isActive: true, provider: 'manual-meta', search: 'missed calls', hookCategory: 'pain_point', angle: 'rational', creativeFormat: 'ugc', bookmarked: true, sort: 'impressions_desc' })
 
     expect(fetchMock).toHaveBeenCalledOnce()
     const [url, init] = fetchMock.mock.calls[0]!
-    expect(url).toBe('https://api.example.test/organizations/org%20%2F%20north/ads?limit=100&productId=product%2Fone&competitorId=competitor+two&isActive=true&provider=manual-meta')
+    expect(url).toBe('https://api.example.test/organizations/org%20%2F%20north/ads?limit=100&productId=product%2Fone&competitorId=competitor+two&isActive=true&provider=manual-meta&search=missed+calls&hookCategory=pain_point&angle=rational&creativeFormat=ugc&bookmarked=true&sort=impressions_desc')
     expect(init).toMatchObject({
       method: 'GET',
       headers: { Accept: 'application/json', Authorization: 'Bearer signed.jwt.value' },
     })
+  })
+
+  it('sets and strictly decodes private ad bookmarks', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ bookmarked: true }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(createApiClient(connection).setAdBookmark('ad/one', true)).resolves.toEqual({ bookmarked: true })
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.test/organizations/org%20%2F%20north/ads/ad%2Fone/bookmark',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ bookmarked: true }) }),
+    )
   })
 
   it('edits, archives, and restores products through encoded lifecycle routes', async () => {
@@ -76,6 +155,39 @@ describe('Creative Intelligence API client', () => {
 
     await expect(client.archiveProduct('x'.repeat(257))).rejects.toEqual(new ApiError(0, 'Resource ID is invalid'))
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('loads and strictly validates competitor analytics history and comparison', async () => {
+    const snapshot = {
+      snapshotDate: '2026-10-27', capturedAt: '2026-10-27T12:00:00.000Z', activeAdCount: 12, newAdsLast7d: 5,
+      launchVelocityDelta: 3, avgDaysActive: 18.5, longRunnerCount: 4, formatMix: { image: 5, video: 6, carousel: 1, text: 0 },
+      scaleScore: 88, newlyTracked: false,
+    }
+    const trend7d = { activeAdCountChange: 2, activeAdCountChangePercent: 20, scaleScoreChange: 4, direction: 'up' as const }
+    const history = { label: 'Public Ad Library momentum proxy' as const, competitor: { id: 'competitor-1', name: 'Orbit' }, windowDays: 30 as const, trend7d, items: [snapshot] }
+    const comparison = { label: 'Public Ad Library momentum proxy' as const, items: [
+      { competitor: { id: 'competitor-2', name: 'Nova' }, latest: null, trend7d: null },
+      { competitor: history.competitor, latest: snapshot, trend7d },
+    ] }
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(history))
+      .mockResolvedValueOnce(jsonResponse(comparison))
+      .mockResolvedValueOnce(jsonResponse({ ...history, trend7d: { ...trend7d, direction: 'sideways' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = createApiClient(connection)
+
+    await expect(client.getCompetitorAnalyticsHistory('product/one', 'competitor/one', 30)).resolves.toEqual(history)
+    await expect(client.compareCompetitorAnalytics('product/one', ['competitor-2', 'competitor-1'])).resolves.toEqual(comparison)
+    expect(fetchMock).toHaveBeenNthCalledWith(1,
+      'https://api.example.test/organizations/org%20%2F%20north/products/product%2Fone/competitors/competitor%2Fone/analytics/history?window=30',
+      expect.objectContaining({ method: 'GET' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(2,
+      'https://api.example.test/organizations/org%20%2F%20north/products/product%2Fone/analytics/comparison',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ competitorIds: ['competitor-2', 'competitor-1'] }) }),
+    )
+    await expect(client.getCompetitorAnalyticsHistory('product/one', 'competitor/one', 30))
+      .rejects.toEqual(new ApiError(502, 'The API returned an invalid response'))
   })
 
   it('loads and strictly validates product scaling analytics', async () => {
@@ -149,6 +261,31 @@ describe('Creative Intelligence API client', () => {
     await expect(client.listBriefVersions('brief-1')).rejects.toEqual(new ApiError(502, 'The API returned an invalid response'))
   })
 
+  it('creates and strictly decodes AI production briefs and handoffs', async () => {
+    const details = {
+      strategy: { targetAudience: 'Students', objective: 'conversion', keyMessage: 'Focus faster', tension: 'distraction', proofPoints: ['Fast'] },
+      artDirection: { format: 'ugc', visualStyle: 'authentic', setting: 'Desk', talent: 'Student', audio: 'Voiceover', color: 'Brand', mandatoryElements: ['Logo'] },
+      narrative: { storyArc: 'Problem to solution', hooks: [{ visual: 'Messy desk', spoken: 'Distracted?', onScreenText: 'Focus' }], bodyScript: 'Use the app.', ctas: ['Install'] },
+      production: { aspectRatios: ['9:16'], durationSeconds: 30, deliverables: ['1 master'], shotList: [{ sequence: 1, description: 'Hook', audio: 'Distracted?', onScreenText: 'Focus' }], handoffNotes: 'Use cleared assets.', sourceAnalysis: { analysisVersion: 'gemini-grounded-v2', confidence: 0.9 } },
+    }
+    const brief = {
+      id: 'brief-ai', organizationId: 'org / north', productId: 'product-1', title: 'AI brief', status: 'draft', sourceAdId: 'ad-1', hook: 'Hook', callToAction: 'Install',
+      dimensions: { audience: 'Students', market: 'US', angle: 'emotional', format: 'ugc' }, details, version: 1,
+      createdAt: '2026-10-28T10:00:00.000Z', updatedAt: '2026-10-28T10:00:00.000Z',
+    }
+    const handoff = { briefId: 'brief-ai', version: 1, filename: 'AI-brief-v1.md', markdown: '# AI brief' }
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse(brief)).mockResolvedValueOnce(jsonResponse(handoff))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = createApiClient(connection)
+
+    await expect(client.createAiBriefFromAd('product/one', { adId: 'ad/one', title: 'AI brief' })).resolves.toEqual(brief)
+    await expect(client.getBriefHandoff('brief/ai')).resolves.toEqual(handoff)
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ['https://api.example.test/organizations/org%20%2F%20north/products/product%2Fone/briefs/from-ad/ai', 'POST'],
+      ['https://api.example.test/organizations/org%20%2F%20north/briefs/brief%2Fai/handoff', 'GET'],
+    ])
+  })
+
   it('requests and strictly validates creative analysis', async () => {
     const payload = {
       organizationId: 'org / north', productId: 'product-1', competitorAdId: 'ad-1', analysisVersion: 'v1',
@@ -158,7 +295,7 @@ describe('Creative Intelligence API client', () => {
         offerFrame: 'demo', cta: 'Start now', onScreenText: 'Launch today', visualSummary: 'Product walkthrough',
         funnelStage: 'consideration', confidence: 0.92,
       },
-      analyzedAt: '2026-10-27T09:45:00.000Z',
+      analyzedAt: '2026-10-27T09:45:00.000Z', provenance: 'automatic', analysisMode: 'media', mediaCount: 1,
     }
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload))
     vi.stubGlobal('fetch', fetchMock)
@@ -182,12 +319,41 @@ describe('Creative Intelligence API client', () => {
       .rejects.toEqual(new ApiError(502, 'The API returned an invalid response'))
   })
 
+  it('requests and strictly validates a competitor creative strategy summary', async () => {
+    const payload = {
+      organizationId: 'org / north', productId: 'product-1', competitorId: 'competitor-1', totalAds: 8, analyzedAds: 5,
+      dimensions: {
+        hooks: [{ value: 'pain_point', count: 3, percentage: 60 }], angles: [], formats: [], emotions: [],
+        personas: [{ value: 'Founders', count: 2, percentage: 40 }], offers: [], funnelStages: [],
+      },
+    }
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(createApiClient(connection).getCreativeStrategy('product/one', 'competitor / one')).resolves.toEqual(payload)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.test/organizations/org%20%2F%20north/products/product%2Fone/competitors/competitor%20%2F%20one/creative-strategy',
+      expect.objectContaining({ method: 'GET' }),
+    )
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ...payload, dimensions: { ...payload.dimensions, hooks: [{ value: 'pain_point', count: 6, percentage: 120 }] } }))
+    await expect(createApiClient(connection).getCreativeStrategy('product-1', 'competitor-1'))
+      .rejects.toEqual(new ApiError(502, 'The API returned an invalid response'))
+  })
+
   it('parses expanded nullable ad metadata and structured media without inventing zero values', async () => {
-    const payload = { items: [ad('ad-1')], nextCursor: null }
+    const payload = { items: [{ ...ad('ad-1'),
+      mirroredMediaUrls: [`/media/sha256/${'c'.repeat(64)}`, null],
+      media: [{ ...ad('ad-1').media![0]!, mirroredUrl: `/media/sha256/${'a'.repeat(64)}`, mirroredPosterUrl: `/media/sha256/${'b'.repeat(64)}` }],
+    }], nextCursor: null }
     vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload)))
     const result = await createApiClient(connection).listAds()
     expect(result.items[0]).toMatchObject({ pageId: 'page-1', impressionsLowerBound: null, spendLowerBound: null, adType: 'video' })
-    expect(result.items[0]?.media).toEqual([{ kind: 'video', sourceUrl: 'https://example.com/video.mp4', posterUrl: 'https://example.com/poster.jpg', cardIndex: null, order: 0 }])
+    expect(result.items[0]?.media).toEqual([{
+      kind: 'video', sourceUrl: 'https://example.com/video.mp4', mirroredUrl: `/media/sha256/${'a'.repeat(64)}`,
+      posterUrl: 'https://example.com/poster.jpg', mirroredPosterUrl: `/media/sha256/${'b'.repeat(64)}`, cardIndex: null, order: 0,
+    }])
+    expect(result.items[0]?.mirroredMediaUrls).toEqual([`/media/sha256/${'c'.repeat(64)}`, null])
 
     vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       items: [{ ...ad('bad-media'), media: [{ kind: 'image', sourceUrl: 'https://example.com/image.jpg', posterUrl: null, cardIndex: 50, order: 0 }] }], nextCursor: null,
@@ -250,6 +416,29 @@ describe('Creative Intelligence API client', () => {
     ])
   })
 
+  it('strictly decodes AI tag review provenance and serializes exact-identity decisions', async () => {
+    const tags = { hookCategory: 'pain_point', angle: 'rational', emotion: 'relief', persona: 'Founder', format: 'ugc', offerFrame: 'demo', cta: 'Learn more', visualSummary: 'Founder demo', funnelStage: 'consideration', confidence: 0.9 }
+    const analysis = { organizationId: 'org / north', productId: 'product-1', competitorAdId: 'ad-1', analysisVersion: 'v1', modelProvider: 'gemini', modelName: 'gemini-test', promptVersion: 'prompt-v1', inputFingerprint: 'a'.repeat(64), tags, analyzedAt: '2026-10-29T09:00:00.000Z', provenance: 'automatic', analysisMode: 'media', mediaCount: 1 }
+    const review = { organizationId: 'org / north', productId: 'product-1', competitorAdId: 'ad-1', analysisVersion: 'v1', inputFingerprint: 'a'.repeat(64), reviewVersion: 1, decision: 'corrected', corrections: { format: 'tutorial' }, reason: 'Verified against source.', reviewerUserId: 'member-1', reviewedAt: '2026-10-29T10:00:00.000Z' }
+    const item = { advertiserName: 'Orbit', analysis, status: 'corrected', review, originalTags: tags, effectiveTags: { ...tags, format: 'tutorial' }, stale: false }
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ items: [item] }))
+      .mockResolvedValueOnce(jsonResponse(review, 201))
+      .mockResolvedValueOnce(jsonResponse({ items: [review] }))
+      .mockResolvedValueOnce(jsonResponse({ items: [{ ...item, review: { ...review, reviewerUserId: '' } }] }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = createApiClient(connection)
+    await expect(client.listCreativeTagReviews({ productId: 'product-1', status: 'corrected' })).resolves.toEqual([item])
+    await expect(client.submitCreativeTagReview('ad/1', { analysisVersion: 'v1', inputFingerprint: 'a'.repeat(64), expectedReviewVersion: 0, decision: 'corrected', corrections: { format: 'tutorial' }, reason: 'Verified against source.' })).resolves.toEqual(review)
+    await expect(client.listCreativeTagReviewHistory('ad/1', 'v1', 'a'.repeat(64))).resolves.toEqual([review])
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ['https://api.example.test/organizations/org%20%2F%20north/creative-tag-reviews?limit=100&productId=product-1&status=corrected', 'GET'],
+      ['https://api.example.test/organizations/org%20%2F%20north/ads/ad%2F1/creative-tag-review', 'POST'],
+      [`https://api.example.test/organizations/org%20%2F%20north/ads/ad%2F1/creative-tag-review/history?analysisVersion=v1&inputFingerprint=${'a'.repeat(64)}&limit=100`, 'GET'],
+    ])
+    await expect(client.listCreativeTagReviews()).rejects.toEqual(new ApiError(502, 'The API returned an invalid response'))
+  })
+
   it('rejects malformed successful resources and unsafe external URLs', async () => {
     vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       items: [{ ...ad('ad-1'), sourceUrl: 'javascript:alert(1)' }], nextCursor: null,
@@ -259,8 +448,8 @@ describe('Creative Intelligence API client', () => {
   })
 })
 
-function jsonResponse(value: unknown): Response {
-  return new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } })
+function jsonResponse(value: unknown, status = 200): Response {
+  return new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } })
 }
 
 function product(id: string) {

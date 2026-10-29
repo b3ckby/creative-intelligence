@@ -9,6 +9,8 @@ const runtimeRole = 'creative_intelligence_runtime'
 const rlsOwnerRole = 'creative_intelligence_rls_owner'
 const loginLimiterOwnerRole = 'creative_intelligence_login_limiter_owner'
 const scheduledWorkerRole = 'creative_intelligence_scheduled_worker'
+const mediaWorkerRole = 'creative_intelligence_media_worker'
+const analysisWorkerRole = 'creative_intelligence_analysis_worker'
 const artifactPrefix = 'creative_intelligence_test_'
 const advisoryLockKey = 734_812_901
 
@@ -16,6 +18,8 @@ export interface RealPostgresContext {
   runtimePool: Pool
   workerPool: Pool
   workerLoginPool: Pool
+  mediaWorkerPool: Pool
+  analysisWorkerPool: Pool
   inspectionPool: Pool
   databaseName: string
   runtimeLoginRole: string
@@ -34,6 +38,8 @@ export interface CleanupNames {
   rlsOwnerRole: string
   loginLimiterOwnerRole: string
   scheduledWorkerRole: string
+  mediaWorkerRole?: string
+  analysisWorkerRole?: string
 }
 
 export interface CleanupOwnership {
@@ -46,7 +52,11 @@ export function cleanupTargets(names: CleanupNames, ownership: CleanupOwnership)
   const targets: string[] = []
   if (ownership.databaseCreated && names.database) targets.push(`database:${names.database}`)
   if (ownership.loginRoleCreated && names.loginRole) targets.push(`role:${names.loginRole}`)
-  if (ownership.fixedRolesOwned) targets.push(`role:${names.runtimeRole}`, `role:${names.rlsOwnerRole}`, `role:${names.loginLimiterOwnerRole}`, `role:${names.scheduledWorkerRole}`)
+  if (ownership.fixedRolesOwned) {
+    targets.push(`role:${names.runtimeRole}`, `role:${names.rlsOwnerRole}`, `role:${names.loginLimiterOwnerRole}`, `role:${names.scheduledWorkerRole}`)
+    if (names.mediaWorkerRole) targets.push(`role:${names.mediaWorkerRole}`)
+    if (names.analysisWorkerRole) targets.push(`role:${names.analysisWorkerRole}`)
+  }
   return targets
 }
 
@@ -58,9 +68,13 @@ export async function withRealPostgres<T>(operation: (context: RealPostgresConte
   let runtimePool: Pool | undefined
   let workerPool: Pool | undefined
   let workerLoginPool: Pool | undefined
+  let mediaWorkerPool: Pool | undefined
+  let analysisWorkerPool: Pool | undefined
   let databaseName: string | undefined
   let runtimeLoginRole: string | undefined
   let workerLoginRole: string | undefined
+  let mediaWorkerLoginRole: string | undefined
+  let analysisWorkerLoginRole: string | undefined
   let advisoryLockHeld = false
   const ownership: CleanupOwnership = {}
   let primaryError: unknown
@@ -78,11 +92,13 @@ export async function withRealPostgres<T>(operation: (context: RealPostgresConte
     databaseName = `${artifactPrefix}${suffix}`
     runtimeLoginRole = `${artifactPrefix}login_${suffix}`
     workerLoginRole = `${artifactPrefix}worker_login_${suffix}`
+    mediaWorkerLoginRole = `${artifactPrefix}media_worker_login_${suffix}`
+    analysisWorkerLoginRole = `${artifactPrefix}analysis_worker_login_${suffix}`
     await lockClient.query(`CREATE DATABASE ${databaseName}`)
     ownership.databaseCreated = true
 
     databasePool = new Pool({ connectionString: databaseUrl(provisioner.connectionString, databaseName), max: 1 })
-    for (const migration of ['001_initial.sql', '002_tenant_rls.sql', '003_provider_sync_limits.sql', '004_provider_sync_limits_rls.sql', '005_staging_login_attempts.sql', '006_ad_intelligence.sql', '007_creative_analysis.sql', '008_brief_workflow.sql', '009_scheduled_provider_sync.sql', '010_ingestion_analytics_snapshots.sql']) {
+    for (const migration of ['001_initial.sql', '002_tenant_rls.sql', '003_provider_sync_limits.sql', '004_provider_sync_limits_rls.sql', '005_staging_login_attempts.sql', '006_ad_intelligence.sql', '007_creative_analysis.sql', '008_brief_workflow.sql', '009_scheduled_provider_sync.sql', '010_ingestion_analytics_snapshots.sql', '011_durable_media_mirror.sql', '012_media_grounded_auto_analysis.sql', '013_ad_library_discovery.sql', '014_ai_briefs_production_handoff.sql', '015_winning_ads_library.sql', '016_inspiration_library.sql', '017_ai_tag_governance.sql']) {
       const sql = await readFile(new URL(`../../../migrations/${migration}`, import.meta.url), 'utf8')
       await databasePool.query(sql)
       if (migration === '002_tenant_rls.sql') ownership.fixedRolesOwned = true
@@ -97,6 +113,12 @@ export async function withRealPostgres<T>(operation: (context: RealPostgresConte
     const workerPassword = randomBytes(24).toString('hex')
     await lockClient.query(`CREATE ROLE ${workerLoginRole} LOGIN PASSWORD '${workerPassword}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`)
     await lockClient.query(`GRANT ${scheduledWorkerRole} TO ${workerLoginRole}`)
+    const mediaWorkerPassword = randomBytes(24).toString('hex')
+    await lockClient.query(`CREATE ROLE ${mediaWorkerLoginRole} LOGIN PASSWORD '${mediaWorkerPassword}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`)
+    await lockClient.query(`GRANT ${mediaWorkerRole} TO ${mediaWorkerLoginRole}`)
+    const analysisWorkerPassword = randomBytes(24).toString('hex')
+    await lockClient.query(`CREATE ROLE ${analysisWorkerLoginRole} LOGIN PASSWORD '${analysisWorkerPassword}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`)
+    await lockClient.query(`GRANT ${analysisWorkerRole} TO ${analysisWorkerLoginRole}`)
     runtimePool = new Pool({
       connectionString: loginUrl(provisioner.connectionString, databaseName, runtimeLoginRole, runtimePassword),
       options: `-c role=${runtimeRole}`,
@@ -110,6 +132,16 @@ export async function withRealPostgres<T>(operation: (context: RealPostgresConte
     workerLoginPool = new Pool({
       connectionString: loginUrl(provisioner.connectionString, databaseName, workerLoginRole, workerPassword),
       max: 1,
+    })
+    mediaWorkerPool = new Pool({
+      connectionString: loginUrl(provisioner.connectionString, databaseName, mediaWorkerLoginRole, mediaWorkerPassword),
+      options: `-c role=${mediaWorkerRole}`,
+      max: 4,
+    })
+    analysisWorkerPool = new Pool({
+      connectionString: loginUrl(provisioner.connectionString, databaseName, analysisWorkerLoginRole, analysisWorkerPassword),
+      options: `-c role=${analysisWorkerRole}`,
+      max: 4,
     })
     const identity = await runtimePool.query<{
       current_user: string
@@ -132,6 +164,8 @@ export async function withRealPostgres<T>(operation: (context: RealPostgresConte
       runtimePool,
       workerPool,
       workerLoginPool,
+      mediaWorkerPool,
+      analysisWorkerPool,
       inspectionPool: databasePool,
       databaseName,
       runtimeLoginRole,
@@ -150,6 +184,8 @@ export async function withRealPostgres<T>(operation: (context: RealPostgresConte
       }
     }
     if (workerLoginPool) await cleanup(() => workerLoginPool!.end())
+    if (mediaWorkerPool) await cleanup(() => mediaWorkerPool!.end())
+    if (analysisWorkerPool) await cleanup(() => analysisWorkerPool!.end())
     if (workerPool) await cleanup(() => workerPool!.end())
     if (runtimePool) {
       const pool = runtimePool
@@ -167,6 +203,8 @@ export async function withRealPostgres<T>(operation: (context: RealPostgresConte
         rlsOwnerRole,
         loginLimiterOwnerRole,
         scheduledWorkerRole,
+        mediaWorkerRole,
+        analysisWorkerRole,
       }, ownership)
       if (databaseName && targets.includes(`database:${databaseName}`)) {
         await cleanup(() => lockClient!.query(`DROP DATABASE IF EXISTS ${databaseName}`))
@@ -175,10 +213,14 @@ export async function withRealPostgres<T>(operation: (context: RealPostgresConte
         await cleanup(() => lockClient!.query(`DROP ROLE IF EXISTS ${runtimeLoginRole}`))
       }
       if (workerLoginRole) await cleanup(() => lockClient!.query(`DROP ROLE IF EXISTS ${workerLoginRole}`))
+      if (mediaWorkerLoginRole) await cleanup(() => lockClient!.query(`DROP ROLE IF EXISTS ${mediaWorkerLoginRole}`))
+      if (analysisWorkerLoginRole) await cleanup(() => lockClient!.query(`DROP ROLE IF EXISTS ${analysisWorkerLoginRole}`))
       if (targets.includes(`role:${runtimeRole}`)) await cleanup(() => lockClient!.query(`DROP ROLE IF EXISTS ${runtimeRole}`))
       if (targets.includes(`role:${rlsOwnerRole}`)) await cleanup(() => lockClient!.query(`DROP ROLE IF EXISTS ${rlsOwnerRole}`))
       if (targets.includes(`role:${loginLimiterOwnerRole}`)) await cleanup(() => lockClient!.query(`DROP ROLE IF EXISTS ${loginLimiterOwnerRole}`))
       if (targets.includes(`role:${scheduledWorkerRole}`)) await cleanup(() => lockClient!.query(`DROP ROLE IF EXISTS ${scheduledWorkerRole}`))
+      if (targets.includes(`role:${mediaWorkerRole}`)) await cleanup(() => lockClient!.query(`DROP ROLE IF EXISTS ${mediaWorkerRole}`))
+      if (targets.includes(`role:${analysisWorkerRole}`)) await cleanup(() => lockClient!.query(`DROP ROLE IF EXISTS ${analysisWorkerRole}`))
       if (advisoryLockHeld) await cleanup(() => lockClient!.query('SELECT pg_advisory_unlock($1)', [advisoryLockKey]))
       lockClient.release()
     }
@@ -257,7 +299,7 @@ async function assertSafeProvisioner(client: PoolClient): Promise<void> {
 async function assertSharedRolesAbsent(client: PoolClient): Promise<void> {
   const result = await client.query<{ rolname: string }>(
     'SELECT rolname FROM pg_roles WHERE rolname = ANY($1::text[]) ORDER BY rolname',
-    [[runtimeRole, rlsOwnerRole, loginLimiterOwnerRole, scheduledWorkerRole]],
+    [[runtimeRole, rlsOwnerRole, loginLimiterOwnerRole, scheduledWorkerRole, mediaWorkerRole, analysisWorkerRole]],
   )
   if (result.rowCount) {
     throw new Error(`Refusing cluster with existing application roles: ${result.rows.map(({ rolname }) => rolname).join(', ')}`)

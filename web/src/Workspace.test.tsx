@@ -40,6 +40,13 @@ const scaling = {
     impressionWeight: 1.25, scaleScore: 88, newlyTracked: false,
   }],
 }
+const creativeStrategy = {
+  organizationId: 'org-1', productId: product.id, competitorId: competitor.id, totalAds: 8, analyzedAds: 5,
+  dimensions: {
+    hooks: [{ value: 'pain_point', count: 3, percentage: 60 }], angles: [], formats: [], emotions: [],
+    personas: [{ value: 'Founders', count: 2, percentage: 40 }], offers: [], funnelStages: [],
+  },
+}
 const creativeAnalysis = {
   organizationId: 'org-1', productId: product.id, competitorAdId: ad.id, analysisVersion: 'v1',
   modelProvider: 'openai', modelName: 'gpt-5-mini', promptVersion: 'creative-tags-v2', inputFingerprint: 'sha256:abc',
@@ -49,6 +56,23 @@ const creativeAnalysis = {
     funnelStage: 'Consideration', confidence: 0.92,
   },
   analyzedAt: '2026-10-27T09:45:00.000Z',
+}
+
+const winningAd = {
+  id: 'winning-1', organizationId: 'org-1', sourceAdId: ad.id, title: 'Orbit launch reference', category: 'modern' as const, notes: 'Strong proof-led pacing.',
+  source: { provider: 'manual-meta', platform: 'meta' as const, externalId: 'external-1', url: ad.sourceUrl, advertiserName: 'Orbit', isActive: true },
+  copy: { body: ad.body, headline: ad.headline, description: ad.description, callToAction: ad.callToAction },
+  media: [{ position: 0, kind: 'image' as const, mediaType: 'image/png', checksum: 'a'.repeat(64), url: `/media/sha256/${'a'.repeat(64)}` }],
+  analysis: { tags: { hookCategory: 'pain_point', angle: 'rational', emotion: 'relief', persona: 'Founder', format: 'tutorial', offerFrame: 'demo', cta: 'Learn more', visualSummary: 'Product walkthrough', funnelStage: 'consideration' as const, confidence: 0.9 }, provenance: 'automatic' as const, version: 'v1', analyzedAt: '2026-10-27T09:45:00.000Z' },
+  version: 1, archivedAt: null, createdAt: '2026-10-28T10:00:00.000Z', updatedAt: '2026-10-28T10:00:00.000Z',
+}
+
+const inspirationBoard = { id: 'board-1', organizationId: 'org-1', name: 'Launch worlds', description: 'Reusable visual systems', version: 1, archivedAt: null, createdAt: '2026-10-28T10:00:00.000Z', updatedAt: '2026-10-28T10:00:00.000Z' }
+const inspirationItem = {
+  id: 'inspiration-1', organizationId: 'org-1', boardId: inspirationBoard.id, sourceKind: 'competitor_ad' as const, sourceId: ad.id, title: 'Kinetic proof', notes: 'Reuse the visual rhythm.', tags: ['motion', 'proof'],
+  source: { provider: 'manual-meta', platform: 'meta' as const, externalId: ad.externalId, url: ad.sourceUrl, advertiserName: ad.advertiserName },
+  copy: { body: ad.body, headline: ad.headline }, media: [{ position: 0, kind: 'image' as const, mediaType: 'image/png', checksum: 'b'.repeat(64), url: `/media/sha256/${'b'.repeat(64)}` }],
+  version: 1, archivedAt: null, createdAt: '2026-10-28T10:00:00.000Z', updatedAt: '2026-10-28T10:00:00.000Z',
 }
 
 function api(): CreativeIntelligenceApi {
@@ -62,20 +86,85 @@ function api(): CreativeIntelligenceApi {
     createCompetitor: vi.fn(),
     syncApifyMetaAds: vi.fn().mockResolvedValue({ inserted: 0, duplicates: 0 }),
     listAds: vi.fn().mockResolvedValue({ items: [ad], nextCursor: null }),
+    setAdBookmark: vi.fn().mockResolvedValue({ bookmarked: true }),
+    listWinningAds: vi.fn().mockResolvedValue({ items: [winningAd], nextCursor: null }),
+    getWinningAd: vi.fn().mockResolvedValue(winningAd),
+    saveWinningAd: vi.fn().mockResolvedValue(winningAd),
+    updateWinningAd: vi.fn().mockResolvedValue({ ...winningAd, title: 'Edited reference', version: 2 }),
+    archiveWinningAd: vi.fn().mockResolvedValue({ ...winningAd, archivedAt: '2026-10-29T00:00:00.000Z' }),
+    removeWinningAd: vi.fn().mockResolvedValue(undefined),
+    listInspirationBoards: vi.fn().mockResolvedValue({ items: [inspirationBoard], nextCursor: null }),
+    createInspirationBoard: vi.fn().mockResolvedValue(inspirationBoard),
+    listInspirationItems: vi.fn().mockResolvedValue({ items: [inspirationItem], nextCursor: null }),
+    getInspirationItem: vi.fn().mockResolvedValue(inspirationItem),
+    createInspirationItem: vi.fn().mockResolvedValue(inspirationItem),
+    updateInspirationItem: vi.fn().mockResolvedValue({ ...inspirationItem, version: 2 }),
+    archiveInspirationItem: vi.fn().mockResolvedValue({ ...inspirationItem, archivedAt: '2026-10-29T00:00:00.000Z' }),
+    removeInspirationItem: vi.fn().mockResolvedValue(undefined),
     listBriefs: vi.fn().mockResolvedValue({ items: [brief], nextCursor: null }),
     createManualBrief: vi.fn().mockResolvedValue(brief),
     createBriefFromAd: vi.fn().mockResolvedValue(brief),
+    createAiBriefFromAd: vi.fn().mockResolvedValue(brief),
+    getBriefHandoff: vi.fn().mockResolvedValue({ briefId: brief.id, version: 1, filename: 'brief.md', markdown: '# Production handoff' }),
     updateBrief: vi.fn().mockResolvedValue({ ...brief, title: 'Founder velocity', status: 'triage', version: 2, updatedAt: '2026-10-06T00:00:00.000Z' }),
     listBriefVersions: vi.fn().mockResolvedValue([{ ...brief, changedBy: 'admin-1', changedAt: brief.createdAt }]),
-    analyzeIterationMap: vi.fn().mockResolvedValue({ totalCombinations: 1, covered: [{ dimensions: brief.dimensions, briefIds: [brief.id] }], missing: [] }),
+    analyzeIterationMap: vi.fn().mockResolvedValue({ totalCombinations: 1, covered: [{ dimensions: brief.dimensions, briefIds: [brief.id], briefs: [{ id: brief.id, title: brief.title, status: brief.status }], briefCount: 1, hasMoreBriefs: false }], missing: [] }),
+    getCompetitorAnalyticsHistory: vi.fn().mockResolvedValue({
+      label: 'Public Ad Library momentum proxy', competitor: { id: competitor.id, name: competitor.name }, windowDays: 30,
+      trend7d: { activeAdCountChange: 4, activeAdCountChangePercent: 50, scaleScoreChange: 18, direction: 'up' },
+      items: [{ snapshotDate: '2026-10-27', capturedAt: '2026-10-27T12:00:00.000Z', activeAdCount: 12, newAdsLast7d: 5,
+        launchVelocityDelta: 3, avgDaysActive: 18.5, longRunnerCount: 4, formatMix: { image: 5, video: 6, carousel: 1, text: 0 }, scaleScore: 88, newlyTracked: false }],
+    }),
+    compareCompetitorAnalytics: vi.fn().mockResolvedValue({ label: 'Public Ad Library momentum proxy', items: [] }),
     getScalingAnalytics: vi.fn().mockResolvedValue(scaling),
     analyzeCreative: vi.fn().mockResolvedValue(creativeAnalysis),
+    listCreativeTagReviews: vi.fn().mockResolvedValue([]),
+    getCreativeTagReview: vi.fn(),
+    listCreativeTagReviewHistory: vi.fn().mockResolvedValue([]),
+    submitCreativeTagReview: vi.fn(),
+    getCreativeStrategy: vi.fn().mockResolvedValue(creativeStrategy),
   }
 }
 
 afterEach(cleanup)
 
 describe('Creative Intelligence workspace', () => {
+  it('reviews exact AI analyses with visible raw/effective tags and append-only provenance', async () => {
+    const client = api()
+    const tags = { hookCategory: 'pain_point', angle: 'rational', emotion: 'relief', persona: 'Founder', format: 'ugc', offerFrame: 'demo', cta: 'Learn more', visualSummary: 'Founder demo', funnelStage: 'consideration' as const, confidence: 0.9 }
+    const analysis = { organizationId: 'org-1', productId: product.id, competitorAdId: ad.id, analysisVersion: 'v1', modelProvider: 'gemini', modelName: 'gemini-test', promptVersion: 'prompt-v1', inputFingerprint: 'a'.repeat(64), tags, analyzedAt: '2026-10-29T09:00:00.000Z', provenance: 'automatic' as const, analysisMode: 'media' as const, mediaCount: 1 }
+    const queueItem = { advertiserName: 'Orbit', analysis, status: 'pending' as const, review: null, originalTags: tags, effectiveTags: tags, stale: false }
+    vi.mocked(client.listCreativeTagReviews).mockResolvedValue([queueItem])
+    vi.mocked(client.submitCreativeTagReview).mockResolvedValue({ organizationId: 'org-1', productId: product.id, competitorAdId: ad.id, analysisVersion: 'v1', inputFingerprint: 'a'.repeat(64), reviewVersion: 1, decision: 'corrected', corrections: { format: 'tutorial' }, reason: 'Verified against the source creative.', reviewerUserId: 'member-1', reviewedAt: '2026-10-29T10:00:00.000Z' })
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'AI review' }))
+    expect(await screen.findByRole('heading', { name: 'AI tag review' })).toBeTruthy()
+    expect(screen.getByText('Raw model tags')).toBeTruthy()
+    expect(screen.getByText('Effective reviewed tags')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Review status'), { target: { value: 'pending' } })
+    await waitFor(() => expect(client.listCreativeTagReviews).toHaveBeenLastCalledWith({ productId: product.id, status: 'pending' }))
+    fireEvent.change(screen.getByLabelText('Decision for Orbit'), { target: { value: 'corrected' } })
+    fireEvent.change(screen.getByLabelText('Correct format for Orbit'), { target: { value: 'tutorial' } })
+    fireEvent.change(screen.getByLabelText('Reason for Orbit'), { target: { value: 'Verified against the source creative.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review for Orbit' }))
+    await waitFor(() => expect(client.submitCreativeTagReview).toHaveBeenCalledWith(ad.id, expect.objectContaining({ analysisVersion: 'v1', inputFingerprint: 'a'.repeat(64), expectedReviewVersion: 0, decision: 'corrected', corrections: { format: 'tutorial' } })))
+    expect(await screen.findByText(/member-1/)).toBeTruthy()
+  })
+
+  it('opens a competitor creative strategy summary with tag coverage', async () => {
+    const client = api()
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Competitors' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'View creative strategy for Orbit' }))
+
+    expect(await screen.findByText('pain point')).toBeTruthy()
+    expect(screen.getByText('60%')).toBeTruthy()
+    expect(screen.getByText(/Based on 5 of 8 analyzed ads\./)).toBeTruthy()
+    expect(client.getCreativeStrategy).toHaveBeenCalledWith(product.id, competitor.id)
+  })
+
   it('edits the selected product from its product profile', async () => {
     const client = api()
     render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
@@ -214,6 +303,132 @@ describe('Creative Intelligence workspace', () => {
     expect(await screen.findByText('Orbit')).toBeTruthy()
   })
 
+  it('shows bounded brief evidence and turns a gap into a prefilled brief', async () => {
+    const client = api()
+    const gap = { audience: 'Founders', market: 'US', angle: 'Proof', format: 'Video' }
+    vi.mocked(client.analyzeIterationMap).mockResolvedValue({
+      totalCombinations: 2,
+      covered: [{ dimensions: brief.dimensions, briefIds: [brief.id], briefs: [{ id: brief.id, title: brief.title, status: 'production' }], briefCount: 1, hasMoreBriefs: false }],
+      missing: [{ dimensions: gap, briefIds: [], briefs: [], briefCount: 0, hasMoreBriefs: false }],
+    })
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Iteration Map' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze coverage' }))
+
+    expect(await screen.findByText('50% covered')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Founder speed/i }))
+    expect(screen.getByText('production')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Create brief for Founders, US, Proof, Video/i }))
+    const dialog = screen.getByRole('dialog', { name: 'New creative brief' })
+    expect(dialog).toBeTruthy()
+    expect((within(dialog).getByLabelText('Audience') as HTMLInputElement).value).toBe('Founders')
+    expect((within(dialog).getByLabelText('Market') as HTMLInputElement).value).toBe('US')
+    expect((within(dialog).getByLabelText('Angle') as HTMLInputElement).value).toBe('Proof')
+    expect((within(dialog).getByLabelText('Format') as HTMLInputElement).value).toBe('Video')
+  })
+
+  it('uses server-side discovery filters and persists private bookmarks', async () => {
+    const client = api()
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
+
+    fireEvent.change(screen.getByLabelText('Search creatives'), { target: { value: 'missed calls' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply search' }))
+    await waitFor(() => expect(client.listAds).toHaveBeenLastCalledWith({ productId: product.id, search: 'missed calls' }))
+
+    fireEvent.change(screen.getByLabelText('Hook category'), { target: { value: 'pain_point' } })
+    await waitFor(() => expect(client.listAds).toHaveBeenLastCalledWith({ productId: product.id, search: 'missed calls', hookCategory: 'pain_point' }))
+    fireEvent.change(screen.getByLabelText('Sort creatives'), { target: { value: 'impressions_desc' } })
+    await waitFor(() => expect(client.listAds).toHaveBeenLastCalledWith({ productId: product.id, search: 'missed calls', hookCategory: 'pain_point', sort: 'impressions_desc' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bookmark Orbit' }))
+    await waitFor(() => expect(client.setAdBookmark).toHaveBeenCalledWith(ad.id, true))
+    expect(screen.getByRole('button', { name: 'Remove bookmark from Orbit' })).toBeTruthy()
+
+    fireEvent.click(screen.getByLabelText('Bookmarked only'))
+    await waitFor(() => expect(client.listAds).toHaveBeenLastCalledWith({ productId: product.id, search: 'missed calls', hookCategory: 'pain_point', sort: 'impressions_desc', bookmarked: true }))
+  })
+
+  it('saves eligible mirrored creatives and manages the distinctive Winning Ads library', async () => {
+    const client = api()
+    vi.mocked(client.listAds).mockResolvedValue({ items: [{ ...ad, mirroredMediaUrls: [`/media/sha256/${'a'.repeat(64)}`], mediaUrls: ['https://cdn.example.test/ad.png'] }], nextCursor: null })
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Save Orbit to Winning Ads' }))
+    await waitFor(() => expect(client.saveWinningAd).toHaveBeenCalledWith(ad.id, { title: 'Orbit reference', category: 'modern', notes: '' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Winning Ads' }))
+    expect(await screen.findByRole('heading', { name: 'Orbit launch reference' })).toBeTruthy()
+    expect(screen.getAllByText('modern').length).toBeGreaterThan(0)
+    expect(screen.getByText('automatic · v1')).toBeTruthy()
+    expect(screen.getByText('pain point')).toBeTruthy()
+    expect(screen.getByAltText('Orbit launch reference').getAttribute('src')).toBe(`/media/sha256/${'a'.repeat(64)}`)
+    fireEvent.change(screen.getByLabelText('Search winning ads'), { target: { value: 'launch' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Filter winning ads' }))
+    await waitFor(() => expect(client.listWinningAds).toHaveBeenLastCalledWith({ search: 'launch' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Orbit launch reference' }))
+    fireEvent.change(screen.getByLabelText('Winning ad title'), { target: { value: 'Edited reference' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Winning Ad changes' }))
+    await waitFor(() => expect(client.updateWinningAd).toHaveBeenCalledWith(winningAd.id, expect.objectContaining({ expectedVersion: 1, title: 'Edited reference' })))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Edited reference' }))
+    await waitFor(() => expect(client.removeWinningAd).toHaveBeenCalledWith(winningAd.id))
+  })
+
+  it('organizes trusted ad references in the Inspiration Library with explicit provenance and empty-safe media', async () => {
+    const client = api()
+    vi.mocked(client.listAds).mockResolvedValue({ items: [{ ...ad, mirroredMediaUrls: [`/media/sha256/${'a'.repeat(64)}`], mediaUrls: ['https://cdn.example.test/ad.png'] }], nextCursor: null })
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Inspiration' }))
+    expect(await screen.findByRole('heading', { name: 'Inspiration Library' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Kinetic proof' })).toBeTruthy()
+    expect(screen.getByText('From competitor ad · Orbit')).toBeTruthy()
+    expect(screen.getByText('motion')).toBeTruthy()
+    expect(screen.getByAltText('Kinetic proof').getAttribute('src')).toBe(`/media/sha256/${'b'.repeat(64)}`)
+    fireEvent.click(screen.getByRole('button', { name: 'Add Orbit to Launch worlds' }))
+    await waitFor(() => expect(client.createInspirationItem).toHaveBeenCalledWith('board-1', 'competitor_ad', ad.id, { title: 'Orbit visual reference', notes: '', tags: [] }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add Winning Ad Orbit launch reference to Launch worlds' }))
+    await waitFor(() => expect(client.createInspirationItem).toHaveBeenCalledWith('board-1', 'winning_ad', winningAd.id, { title: 'Orbit launch reference', notes: '', tags: [] }))
+    fireEvent.change(screen.getByLabelText('Search inspiration'), { target: { value: 'kinetic' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Filter inspiration' }))
+    await waitFor(() => expect(client.listInspirationItems).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'kinetic' })))
+  })
+
+  it('creates the first Inspiration board without requiring an API-only bootstrap', async () => {
+    const client = api()
+    vi.mocked(client.listInspirationBoards).mockResolvedValue({ items: [], nextCursor: null })
+    vi.mocked(client.listInspirationItems).mockResolvedValue({ items: [], nextCursor: null })
+    vi.mocked(client.createInspirationBoard).mockResolvedValue({ ...inspirationBoard, name: 'Proof systems', description: 'Reusable proof patterns' })
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Inspiration' }))
+
+    fireEvent.change(await screen.findByLabelText('Board name'), { target: { value: 'Proof systems' } })
+    fireEvent.change(screen.getByLabelText('Board description'), { target: { value: 'Reusable proof patterns' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create inspiration board' }))
+
+    await waitFor(() => expect(client.createInspirationBoard).toHaveBeenCalledWith({ name: 'Proof systems', description: 'Reusable proof patterns' }))
+    expect(await screen.findByText('Proof systems')).toBeTruthy()
+  })
+
+  it('adds a trusted reference to the selected Inspiration board', async () => {
+    const client = api()
+    const secondBoard = { ...inspirationBoard, id: 'board-2', name: 'Proof systems' }
+    vi.mocked(client.listInspirationBoards).mockResolvedValue({ items: [inspirationBoard, secondBoard], nextCursor: null })
+    vi.mocked(client.listAds).mockResolvedValue({ items: [{ ...ad, mirroredMediaUrls: [`/media/sha256/${'a'.repeat(64)}`] }], nextCursor: null })
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Inspiration' }))
+
+    fireEvent.change(await screen.findByLabelText('Inspiration board'), { target: { value: secondBoard.id } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add Orbit to Proof systems' }))
+
+    await waitFor(() => expect(client.createInspirationItem).toHaveBeenCalledWith(secondBoard.id, 'competitor_ad', ad.id, { title: 'Orbit visual reference', notes: '', tags: [] }))
+  })
+
   it('edits a brief with its current version and shows immutable history', async () => {
     const client = api()
     render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
@@ -274,6 +489,74 @@ describe('Creative Intelligence workspace', () => {
     ]).toEqual([0, 0])
   })
 
+  it('lets analysts inspect bounded history and compare explicitly selected competitors', async () => {
+    const peer = { ...competitor, id: 'competitor-2', name: 'Nova' }
+    const client = api()
+    vi.mocked(client.listCompetitors).mockResolvedValue({ items: [competitor, peer], nextCursor: null })
+    vi.mocked(client.compareCompetitorAnalytics).mockResolvedValue({
+      label: 'Public Ad Library momentum proxy',
+      items: [
+        { competitor: { id: competitor.id, name: competitor.name }, latest: {
+          snapshotDate: '2026-10-27', capturedAt: '2026-10-27T12:00:00.000Z', activeAdCount: 12, newAdsLast7d: 5,
+          launchVelocityDelta: 3, avgDaysActive: 18.5, longRunnerCount: 4, formatMix: { image: 5, video: 6, carousel: 1, text: 0 }, scaleScore: 88, newlyTracked: false,
+        }, trend7d: { activeAdCountChange: 4, activeAdCountChangePercent: 50, scaleScoreChange: 18, direction: 'up' } },
+        { competitor: { id: peer.id, name: peer.name }, latest: null, trend7d: null },
+      ],
+    })
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Analytics' }))
+
+    expect(await screen.findByRole('heading', { name: 'Analytics history' })).toBeTruthy()
+    await waitFor(() => expect(client.getCompetitorAnalyticsHistory).toHaveBeenCalledWith(product.id, competitor.id, 30))
+    expect(screen.getByText('2026-10-27')).toBeTruthy()
+    expect(screen.getByText('+50% active ads')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('History window'), { target: { value: '90' } })
+    await waitFor(() => expect(client.getCompetitorAnalyticsHistory).toHaveBeenLastCalledWith(product.id, competitor.id, 90))
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Compare Orbit' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Compare Nova' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Compare selected' }))
+    await waitFor(() => expect(client.compareCompetitorAnalytics).toHaveBeenCalledWith(product.id, [competitor.id, peer.id]))
+    expect(await screen.findByRole('heading', { name: 'Side-by-side comparison' })).toBeTruthy()
+    expect(screen.getByRole('columnheader', { name: 'Nova' })).toBeTruthy()
+    expect(screen.getByText('No snapshot')).toBeTruthy()
+  })
+
+  it('discards a pending comparison when the selected product changes', async () => {
+    const secondProduct = { ...product, id: 'product-2', name: 'Beacon' }
+    const peer = { ...competitor, id: 'competitor-2', name: 'Nova' }
+    const secondCompetitor = { ...competitor, id: 'competitor-3', productId: secondProduct.id, name: 'Beacon Rival' }
+    const pending = deferred<Awaited<ReturnType<CreativeIntelligenceApi['compareCompetitorAnalytics']>>>()
+    const client = api()
+    vi.mocked(client.listProducts).mockResolvedValue({ items: [product, secondProduct], nextCursor: null })
+    vi.mocked(client.listCompetitors)
+      .mockResolvedValueOnce({ items: [competitor, peer], nextCursor: null })
+      .mockResolvedValueOnce({ items: [secondCompetitor], nextCursor: null })
+    vi.mocked(client.compareCompetitorAnalytics).mockReturnValue(pending.promise)
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+    fireEvent.click(screen.getByRole('button', { name: 'Analytics' }))
+    await screen.findByRole('checkbox', { name: 'Compare Orbit' })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Compare Orbit' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Compare Nova' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Compare selected' }))
+    await waitFor(() => expect(client.compareCompetitorAnalytics).toHaveBeenCalled())
+
+    fireEvent.change(screen.getByLabelText('Select product'), { target: { value: secondProduct.id } })
+    await screen.findByRole('heading', { name: 'Beacon' })
+    await act(async () => pending.resolve({
+      label: 'Public Ad Library momentum proxy',
+      items: [
+        { competitor: { id: competitor.id, name: competitor.name }, latest: null, trend7d: null },
+        { competitor: { id: peer.id, name: peer.name }, latest: null, trend7d: null },
+      ],
+    }))
+
+    expect(screen.queryByRole('columnheader', { name: 'Nova' })).toBeNull()
+    expect(screen.getByRole('checkbox', { name: 'Compare Beacon Rival' })).toBeTruthy()
+  })
+
   it('loads the Analytics surface on demand and explains proxy metrics', async () => {
     const client = api()
     render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
@@ -284,7 +567,7 @@ describe('Creative Intelligence workspace', () => {
 
     expect(await screen.findByRole('heading', { name: 'Scale signals' })).toBeTruthy()
     expect(client.getScalingAnalytics).toHaveBeenCalledWith(product.id)
-    expect(screen.getByText('88')).toBeTruthy()
+    expect(screen.getAllByText('88').length).toBeGreaterThan(0)
     expect(screen.getByText(/2 carousel/i)).toBeTruthy()
     expect(screen.getByText(/directional proxies/i)).toBeTruthy()
     expect(screen.getByText(/not verified spend or revenue/i)).toBeTruthy()
@@ -621,25 +904,29 @@ describe('Creative Intelligence workspace', () => {
     expect(document.activeElement).toBe(trigger)
   })
 
-  it('filters creatives by text and media format in the browser', async () => {
+  it('uses server text search and applies media format locally', async () => {
     const client = api()
-    vi.mocked(client.listAds).mockResolvedValue({
-      items: [
-        { ...ad, id: 'video-ad', body: 'Vertical product demo', adType: 'video', mediaUrls: ['https://cdn.example.test/demo.mp4'] },
-        { ...ad, id: 'text-ad', body: 'Founder testimonial', adType: 'text', mediaUrls: [] },
-      ],
-      nextCursor: null,
-    })
+    const allAds = [
+      { ...ad, id: 'video-ad', body: 'Vertical product demo', adType: 'video' as const, mediaUrls: ['https://cdn.example.test/demo.mp4'] },
+      { ...ad, id: 'text-ad', body: 'Founder testimonial', adType: 'text' as const, mediaUrls: [] },
+    ]
+    vi.mocked(client.listAds)
+      .mockResolvedValueOnce({ items: allAds, nextCursor: null })
+      .mockResolvedValueOnce({ items: [allAds[1]!], nextCursor: null })
+      .mockResolvedValueOnce({ items: allAds, nextCursor: null })
     render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
     await screen.findByRole('heading', { name: 'Northstar' })
     fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
     expect(await screen.findByText('2 creatives')).toBeTruthy()
 
     fireEvent.change(screen.getByLabelText('Search creatives'), { target: { value: 'testimonial' } })
-    expect(screen.getByText('1 creative')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Apply search' }))
+    expect(await screen.findByText('1 creative')).toBeTruthy()
     expect(screen.queryByText('Vertical product demo')).toBeNull()
 
     fireEvent.change(screen.getByLabelText('Search creatives'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply search' }))
+    expect(await screen.findByText('2 creatives')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Media format'), { target: { value: 'video' } })
     expect(screen.getByText('1 creative')).toBeTruthy()
     expect(screen.queryByText('Founder testimonial')).toBeNull()
@@ -684,7 +971,7 @@ describe('Creative Intelligence workspace', () => {
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Select product' }), { target: { value: secondProduct.id } })
     await screen.findByRole('heading', { name: 'Beacon' })
-    pending.resolve({ totalCombinations: 1, covered: [{ dimensions: { audience: 'STALE', market: 'US', angle: 'Old result', format: 'Static' }, briefIds: ['brief-old'] }], missing: [] })
+    pending.resolve({ totalCombinations: 1, covered: [{ dimensions: { audience: 'STALE', market: 'US', angle: 'Old result', format: 'Static' }, briefIds: ['brief-old'], briefs: [{ id: 'brief-old', title: 'Old brief', status: 'draft' }], briefCount: 1, hasMoreBriefs: false }], missing: [] })
     await waitFor(() => expect(screen.queryByText('Old result')).toBeNull())
     expect(screen.getByText('Map the white space.')).toBeTruthy()
   })
@@ -702,12 +989,38 @@ describe('Creative Intelligence workspace', () => {
     fireEvent.click(analyzeButton)
     await waitFor(() => expect(client.analyzeIterationMap).toHaveBeenCalledTimes(2))
 
-    second.resolve({ totalCombinations: 1, covered: [{ dimensions: { audience: 'Founders', market: 'US', angle: 'Newest', format: 'Static' }, briefIds: ['brief-new'] }], missing: [] })
+    second.resolve({ totalCombinations: 1, covered: [{ dimensions: { audience: 'Founders', market: 'US', angle: 'Newest', format: 'Static' }, briefIds: ['brief-new'], briefs: [{ id: 'brief-new', title: 'New brief', status: 'draft' }], briefCount: 1, hasMoreBriefs: false }], missing: [] })
     expect(await screen.findByText('Newest')).toBeTruthy()
-    first.resolve({ totalCombinations: 1, covered: [{ dimensions: { audience: 'Founders', market: 'US', angle: 'Stale', format: 'Static' }, briefIds: ['brief-old'] }], missing: [] })
+    first.resolve({ totalCombinations: 1, covered: [{ dimensions: { audience: 'Founders', market: 'US', angle: 'Stale', format: 'Static' }, briefIds: ['brief-old'], briefs: [{ id: 'brief-old', title: 'Old brief', status: 'draft' }], briefCount: 1, hasMoreBriefs: false }], missing: [] })
     await waitFor(() => expect(screen.queryByRole('progressbar')).toBeNull())
     expect(screen.getByText('Newest')).toBeTruthy()
     expect(screen.queryByText('Stale')).toBeNull()
+  })
+
+  it('creates AI production briefs and opens versioned handoffs', async () => {
+    const client = api()
+    const details = {
+      strategy: { targetAudience: 'Founders', objective: 'conversion', keyMessage: 'Move faster', tension: 'slow work', proofPoints: ['Fast'] },
+      artDirection: { format: 'ugc', visualStyle: 'authentic', setting: 'Office', talent: 'Founder', audio: 'Voiceover', color: 'Brand', mandatoryElements: ['Logo'] },
+      narrative: { storyArc: 'Problem to solution', hooks: [{ visual: 'Busy desk', spoken: 'Too slow?', onScreenText: 'Move faster' }], bodyScript: 'Use Northstar.', ctas: ['Start'] },
+      production: { aspectRatios: ['9:16'], durationSeconds: 30, deliverables: ['1 master'], shotList: [{ sequence: 1, description: 'Hook', audio: 'Too slow?', onScreenText: 'Move faster' }], handoffNotes: 'Cleared assets only.', sourceAnalysis: { analysisVersion: 'gemini-grounded-v2', confidence: 0.9 } },
+    }
+    const aiBrief = { ...brief, id: 'brief-ai', title: 'AI production', details }
+    vi.mocked(client.listBriefs).mockResolvedValue({ items: [aiBrief], nextCursor: null })
+    vi.mocked(client.createAiBriefFromAd).mockResolvedValue(aiBrief)
+    vi.mocked(client.getBriefHandoff).mockResolvedValue({ briefId: 'brief-ai', version: 1, filename: 'AI-production-v1.md', markdown: '# AI production\n\nProduction-ready.' })
+    render(<Workspace api={client} organizationLabel="Acme Studio" onDisconnect={() => undefined} />)
+    await screen.findByRole('heading', { name: 'Northstar' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ad Library' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'AI brief for Orbit' }))
+    await waitFor(() => expect(client.createAiBriefFromAd).toHaveBeenCalledWith('product-1', { adId: 'ad-1', title: 'Orbit — AI production brief' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Brief Builder' }))
+    expect(await screen.findByText('AI production brief')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Production handoff for AI production' }))
+    expect(await screen.findByRole('heading', { name: 'Production handoff' })).toBeTruthy()
+    expect(screen.getByText(/Production-ready/)).toBeTruthy()
   })
 
   it('submits at most one from-ad brief while the first request is pending', async () => {

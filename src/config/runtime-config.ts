@@ -34,6 +34,17 @@ export interface RuntimeConfig {
     timeoutMs: number
     maxConcurrency: number
     dailyLimit: number
+    maxMediaCount: number
+    maxMediaBytes: number
+    autoTagging?: {
+      intervalMs: number
+      leaseSeconds: number
+      batchSize: number
+      concurrency: number
+      backoffBaseMs: number
+      backoffMaxMs: number
+      workerDatabase: { url: string; expectedRole: string }
+    }
   }
   scheduledSync?: {
     intervalMs: number
@@ -43,6 +54,20 @@ export interface RuntimeConfig {
     backoffMaxMs: number
     batchSize: number
     concurrency: number
+    workerDatabase: { url: string; expectedRole: string }
+  }
+  mediaMirror?: {
+    storageRoot: string
+    intervalMs: number
+    leaseSeconds: number
+    batchSize: number
+    concurrency: number
+    backfillBatchSize: number
+    backoffBaseMs: number
+    backoffMaxMs: number
+    fetchTimeoutMs: number
+    maxBytes: number
+    maxRedirects: number
     workerDatabase: { url: string; expectedRole: string }
   }
   apify: {
@@ -96,6 +121,8 @@ export function parseRuntimeConfig(environment: Readonly<Record<string, string |
     const stagingLogin = parseStagingLogin(environment)
     const creativeAnalysis = parseCreativeAnalysis(environment)
     const scheduledSync = parseScheduledSync(environment)
+    const mediaMirror = parseMediaMirror(environment)
+    if (creativeAnalysis?.autoTagging && !mediaMirror) throw new Error('auto analysis requires media mirror')
     if (stagingLogin) {
       const subjectMaximum = oidc.subjectMaxLength ?? 128
       if (!oidc.algorithms.includes('RS256') || stagingLogin.subject.length > subjectMaximum) throw new Error('staging signer does not match OIDC verifier')
@@ -116,6 +143,7 @@ export function parseRuntimeConfig(environment: Readonly<Record<string, string |
       ...(stagingLogin ? { stagingLogin } : {}),
       ...(creativeAnalysis ? { creativeAnalysis } : {}),
       ...(scheduledSync ? { scheduledSync } : {}),
+      ...(mediaMirror ? { mediaMirror } : {}),
       apify: {
         apiToken: apifyApiToken,
         timeoutMs: integer(environment, 'APIFY_TIMEOUT_MS', 100, 120_000),
@@ -129,6 +157,45 @@ export function parseRuntimeConfig(environment: Readonly<Record<string, string |
   } catch {
     throw new Error('Runtime configuration is invalid')
   }
+}
+
+function parseMediaMirror(environment: Readonly<Record<string, string | undefined>>): RuntimeConfig['mediaMirror'] {
+  const enabled = environment.MEDIA_MIRROR_ENABLED
+  const names = [
+    'MEDIA_MIRROR_STORAGE_ROOT','MEDIA_MIRROR_INTERVAL_MS','MEDIA_MIRROR_LEASE_SECONDS','MEDIA_MIRROR_BATCH_SIZE','MEDIA_MIRROR_CONCURRENCY',
+    'MEDIA_MIRROR_BACKFILL_BATCH_SIZE','MEDIA_MIRROR_BACKOFF_BASE_MS','MEDIA_MIRROR_BACKOFF_MAX_MS','MEDIA_MIRROR_FETCH_TIMEOUT_MS',
+    'MEDIA_MIRROR_MAX_BYTES','MEDIA_MIRROR_MAX_REDIRECTS','MEDIA_MIRROR_WORKER_DATABASE_URL','MEDIA_MIRROR_WORKER_DATABASE_ROLE',
+  ]
+  if (enabled === undefined) {
+    if (names.some((name) => environment[name] !== undefined)) throw new Error('media mirror settings require explicit enablement')
+    return undefined
+  }
+  if (enabled !== 'true') throw new Error('invalid media mirror enablement')
+  const storageRoot = absolutePath(environment, 'MEDIA_MIRROR_STORAGE_ROOT')
+  if (storageRoot === '/') throw new Error('unsafe media storage root')
+  const result = {
+    storageRoot,
+    intervalMs: integer(environment, 'MEDIA_MIRROR_INTERVAL_MS', 100, 3_600_000),
+    leaseSeconds: integer(environment, 'MEDIA_MIRROR_LEASE_SECONDS', 10, 3_600),
+    batchSize: integer(environment, 'MEDIA_MIRROR_BATCH_SIZE', 1, 100),
+    concurrency: integer(environment, 'MEDIA_MIRROR_CONCURRENCY', 1, 16),
+    backfillBatchSize: integer(environment, 'MEDIA_MIRROR_BACKFILL_BATCH_SIZE', 1, 1_000),
+    backoffBaseMs: integer(environment, 'MEDIA_MIRROR_BACKOFF_BASE_MS', 100, 3_600_000),
+    backoffMaxMs: integer(environment, 'MEDIA_MIRROR_BACKOFF_MAX_MS', 100, 86_400_000),
+    fetchTimeoutMs: integer(environment, 'MEDIA_MIRROR_FETCH_TIMEOUT_MS', 100, 120_000),
+    maxBytes: integer(environment, 'MEDIA_MIRROR_MAX_BYTES', 1_000, 104_857_600),
+    maxRedirects: integer(environment, 'MEDIA_MIRROR_MAX_REDIRECTS', 0, 5),
+    workerDatabase: {
+      url: required(environment, 'MEDIA_MIRROR_WORKER_DATABASE_URL', 4_096),
+      expectedRole: required(environment, 'MEDIA_MIRROR_WORKER_DATABASE_ROLE', 63),
+    },
+  }
+  const workerUrl = new URL(result.workerDatabase.url)
+  if ((workerUrl.protocol !== 'postgres:' && workerUrl.protocol !== 'postgresql:') || workerUrl.hash
+    || result.workerDatabase.expectedRole !== 'creative_intelligence_media_worker'
+    || result.concurrency > result.batchSize || result.backoffMaxMs < result.backoffBaseMs
+    || result.leaseSeconds * 1_000 < result.fetchTimeoutMs + 10_000) throw new Error('unsafe media mirror settings')
+  return result
 }
 
 function parseScheduledSync(environment: Readonly<Record<string, string | undefined>>): RuntimeConfig['scheduledSync'] {
@@ -163,7 +230,7 @@ function parseScheduledSync(environment: Readonly<Record<string, string | undefi
 
 function parseCreativeAnalysis(environment: Readonly<Record<string, string | undefined>>): RuntimeConfig['creativeAnalysis'] {
   const enabled = environment.CREATIVE_ANALYSIS_ENABLED
-  const settingNames = ['GEMINI_API_KEY_FILE', 'GEMINI_MODEL', 'GEMINI_TIMEOUT_MS', 'GEMINI_MAX_CONCURRENCY', 'CREATIVE_ANALYSIS_DAILY_LIMIT']
+  const settingNames = ['GEMINI_API_KEY_FILE', 'GEMINI_MODEL', 'GEMINI_TIMEOUT_MS', 'GEMINI_MAX_CONCURRENCY', 'CREATIVE_ANALYSIS_DAILY_LIMIT', 'CREATIVE_ANALYSIS_MAX_MEDIA_COUNT', 'CREATIVE_ANALYSIS_MAX_MEDIA_BYTES', 'AUTO_ANALYSIS_ENABLED', 'AUTO_ANALYSIS_INTERVAL_MS', 'AUTO_ANALYSIS_LEASE_SECONDS', 'AUTO_ANALYSIS_BATCH_SIZE', 'AUTO_ANALYSIS_CONCURRENCY', 'AUTO_ANALYSIS_BACKOFF_BASE_MS', 'AUTO_ANALYSIS_BACKOFF_MAX_MS', 'AUTO_ANALYSIS_WORKER_DATABASE_URL', 'AUTO_ANALYSIS_WORKER_DATABASE_ROLE']
   if (enabled === undefined) {
     if (settingNames.some((name) => environment[name] !== undefined)) throw new Error('creative analysis settings require explicit enablement')
     return undefined
@@ -171,12 +238,37 @@ function parseCreativeAnalysis(environment: Readonly<Record<string, string | und
   if (enabled !== 'true') throw new Error('invalid creative analysis enablement')
   const model = required(environment, 'GEMINI_MODEL', 100)
   if (!/^[A-Za-z0-9._-]+$/u.test(model)) throw new Error('invalid Gemini model')
+  const timeoutMs = integer(environment, 'GEMINI_TIMEOUT_MS', 1_000, 120_000)
+  const autoEnabled = environment.AUTO_ANALYSIS_ENABLED
+  if (autoEnabled !== undefined && autoEnabled !== 'true') throw new Error('invalid auto analysis enablement')
+  const autoTagging = autoEnabled === 'true' ? {
+    intervalMs: integer(environment, 'AUTO_ANALYSIS_INTERVAL_MS', 100, 3_600_000),
+    leaseSeconds: integer(environment, 'AUTO_ANALYSIS_LEASE_SECONDS', 10, 3_600),
+    batchSize: integer(environment, 'AUTO_ANALYSIS_BATCH_SIZE', 1, 100),
+    concurrency: integer(environment, 'AUTO_ANALYSIS_CONCURRENCY', 1, 16),
+    backoffBaseMs: integer(environment, 'AUTO_ANALYSIS_BACKOFF_BASE_MS', 100, 3_600_000),
+    backoffMaxMs: integer(environment, 'AUTO_ANALYSIS_BACKOFF_MAX_MS', 100, 86_400_000),
+    workerDatabase: { url: required(environment, 'AUTO_ANALYSIS_WORKER_DATABASE_URL', 4_096), expectedRole: required(environment, 'AUTO_ANALYSIS_WORKER_DATABASE_ROLE', 63) },
+  } : undefined
+  if (autoTagging) {
+    const workerUrl = new URL(autoTagging.workerDatabase.url)
+    if ((workerUrl.protocol !== 'postgres:' && workerUrl.protocol !== 'postgresql:') || workerUrl.hash
+      || autoTagging.workerDatabase.expectedRole !== 'creative_intelligence_analysis_worker'
+      || autoTagging.concurrency > autoTagging.batchSize || autoTagging.backoffMaxMs < autoTagging.backoffBaseMs
+      || autoTagging.leaseSeconds * 1_000 < timeoutMs + 10_000) throw new Error('unsafe auto analysis settings')
+  }
+  const maxMediaCount = optionalInteger(environment, 'CREATIVE_ANALYSIS_MAX_MEDIA_COUNT') ?? 4
+  const maxMediaBytes = optionalInteger(environment, 'CREATIVE_ANALYSIS_MAX_MEDIA_BYTES') ?? 8 * 1024 * 1024
+  if (maxMediaCount < 0 || maxMediaCount > 16 || maxMediaBytes < 1 || maxMediaBytes > 32 * 1024 * 1024) throw new Error('invalid creative media bounds')
   return {
     apiKeyFile: absolutePath(environment, 'GEMINI_API_KEY_FILE'),
     model,
-    timeoutMs: integer(environment, 'GEMINI_TIMEOUT_MS', 1_000, 120_000),
+    timeoutMs,
     maxConcurrency: integer(environment, 'GEMINI_MAX_CONCURRENCY', 1, 16),
     dailyLimit: integer(environment, 'CREATIVE_ANALYSIS_DAILY_LIMIT', 1, 10_000),
+    maxMediaCount,
+    maxMediaBytes,
+    ...(autoTagging ? { autoTagging } : {}),
   }
 }
 

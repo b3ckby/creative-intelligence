@@ -4,7 +4,7 @@ import { AD_BODY_MAX_LENGTH } from '../domain/types.ts'
 import { CREATIVE_ANGLES, CREATIVE_FORMATS, HOOK_CATEGORIES, OFFER_FRAMES } from '../creative-analysis/creative-analysis-service.ts'
 import { MAX_CURSOR_LENGTH } from './pagination.ts'
 
-export type ApiMethod = 'GET' | 'POST' | 'PATCH'
+export type ApiMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 export type JsonSchema = Record<string, unknown>
 
 export interface ApiRouteSchema extends FastifySchema {
@@ -104,12 +104,35 @@ const AUTHORIZATION_OPERATIONS = new Set([
   'syncApifyMetaAds',
   'listCompetitorAds',
   'listOrganizationAds',
+  'setAdBookmark',
+  'saveWinningAd',
+  'listWinningAds',
+  'getWinningAd',
+  'updateWinningAd',
+  'archiveWinningAd',
+  'removeWinningAd',
+  'createInspirationBoard',
+  'listInspirationBoards',
+  'createInspirationItem',
+  'listInspirationItems',
+  'getInspirationItem',
+  'updateInspirationItem',
+  'archiveInspirationItem',
+  'removeInspirationItem',
+  'getCompetitorAnalyticsHistory',
+  'compareCompetitorAnalytics',
   'getScalingAnalytics',
   'analyzeCreative',
+  'listCreativeTagReviews',
+  'getCreativeTagReview',
+  'listCreativeTagReviewHistory',
+  'submitCreativeTagReview',
   'updateBrief',
   'listBriefVersions',
+  'createAiBriefFromAd',
+  'getBriefHandoff',
 ])
-const NOT_FOUND_OPERATIONS = new Set(['getProduct', 'updateProduct', 'archiveProduct', 'restoreProduct', 'getCompetitor', 'getAdSyncSchedule', 'upsertAdSyncSchedule', 'updateAdSyncSchedule', 'disableAdSyncSchedule', 'getBrief', 'updateBrief', 'listBriefVersions', 'syncApifyMetaAds', 'getScalingAnalytics', 'analyzeCreative'])
+const NOT_FOUND_OPERATIONS = new Set(['getInspirationItem', 'updateInspirationItem', 'archiveInspirationItem', 'removeInspirationItem', 'getWinningAd', 'updateWinningAd', 'archiveWinningAd', 'removeWinningAd', 'getProduct', 'updateProduct', 'archiveProduct', 'restoreProduct', 'getCompetitor', 'getAdSyncSchedule', 'upsertAdSyncSchedule', 'updateAdSyncSchedule', 'disableAdSyncSchedule', 'getBrief', 'updateBrief', 'listBriefVersions', 'syncApifyMetaAds', 'getCompetitorAnalyticsHistory', 'compareCompetitorAnalytics', 'getScalingAnalytics', 'analyzeCreative', 'setAdBookmark', 'createAiBriefFromAd', 'getBriefHandoff', 'getCreativeTagReview', 'listCreativeTagReviewHistory', 'submitCreativeTagReview'])
 const CONFLICT_OPERATIONS = new Set([
   'createOrganization',
   'addOrganizationMember',
@@ -122,6 +145,12 @@ const CONFLICT_OPERATIONS = new Set([
   'createManualBrief',
   'updateBrief',
   'analyzeCreative',
+  'saveWinningAd',
+  'updateWinningAd',
+  'createInspirationBoard',
+  'createInspirationItem',
+  'updateInspirationItem',
+  'submitCreativeTagReview',
 ])
 
 function errorResponsesFor(method: ApiMethod, operationId: string): Record<number, JsonSchema> {
@@ -129,11 +158,12 @@ function errorResponsesFor(method: ApiMethod, operationId: string): Record<numbe
   if (AUTHORIZATION_OPERATIONS.has(operationId)) statuses.add(403)
   if (NOT_FOUND_OPERATIONS.has(operationId)) statuses.add(404)
   if (CONFLICT_OPERATIONS.has(operationId)) statuses.add(409)
-  if (operationId === 'syncApifyMetaAds' || operationId === 'analyzeCreative') {
+  if (operationId === 'syncApifyMetaAds' || operationId === 'analyzeCreative' || operationId === 'createAiBriefFromAd') {
     statuses.add(502)
     statuses.add(503)
   }
-  if (operationId === 'analyzeCreative') statuses.add(429)
+  if (operationId === 'getCompetitorAnalyticsHistory' || operationId === 'compareCompetitorAnalytics') statuses.add(503)
+  if (operationId === 'analyzeCreative' || operationId === 'createAiBriefFromAd') statuses.add(429)
   if (method === 'POST' || method === 'PATCH') {
     statuses.add(413)
     statuses.add(415)
@@ -175,12 +205,15 @@ const adSyncSchedulePatchBody: JsonSchema = {
   ...strictObject({ intervalSeconds: { type: 'integer', minimum: 60, maximum: 604800 }, enabled: { type: 'boolean' } }, []),
   minProperties: 1,
 }
-const adMedia: JsonSchema = strictObject({
-  kind: { type: 'string', enum: ['image', 'video'] }, sourceUrl: httpsUrl, posterUrl: { anyOf: [httpsUrl, { type: 'null' }] },
+const mirroredMediaReference: JsonSchema = { type: 'string', pattern: '^/media/sha256/[a-f0-9]{64}$' }
+const adMediaProperties: Record<string, JsonSchema> = {
+  kind: { type: 'string', enum: ['image', 'video'] }, sourceUrl: httpsUrl, mirroredUrl: mirroredMediaReference,
+  posterUrl: { anyOf: [httpsUrl, { type: 'null' }] }, mirroredPosterUrl: mirroredMediaReference,
   cardIndex: { anyOf: [{ type: 'integer', minimum: 0, maximum: 49 }, { type: 'null' }] }, order: { type: 'integer', minimum: 0, maximum: 49 },
-})
+}
+const adMedia: JsonSchema = strictObject(adMediaProperties, Object.keys(adMediaProperties).filter((key) => key !== 'mirroredUrl' && key !== 'mirroredPosterUrl'))
 const nullableNonNegativeNumber: JsonSchema = { anyOf: [{ type: 'number', minimum: 0 }, { type: 'null' }] }
-const ad: JsonSchema = strictObject({
+const adProperties: Record<string, JsonSchema> = {
   id: identifier,
   organizationId: identifier,
   productId: identifier,
@@ -207,10 +240,13 @@ const ad: JsonSchema = strictObject({
   currency: { anyOf: [{ type: 'string', pattern: '^[A-Z]{3}$' }, { type: 'null' }] },
   media: { anyOf: [{ type: 'array', maxItems: 50, items: adMedia }, { type: 'null' }] },
   mediaUrls: { type: 'array', maxItems: 50, uniqueItems: true, items: httpsUrl },
+  mirroredMediaUrls: { type: 'array', maxItems: 50, items: { anyOf: [mirroredMediaReference, { type: 'null' }] } },
   sourceUrl: httpsUrl,
   firstSeenAt: timestamp,
   lastSeenAt: timestamp,
-})
+  bookmarked: { type: 'boolean' },
+}
+const ad: JsonSchema = strictObject(adProperties, Object.keys(adProperties).filter((key) => key !== 'mirroredMediaUrls' && key !== 'bookmarked'))
 const dimensions: JsonSchema = strictObject({
   audience: canonicalText(100),
   market: canonicalText(100),
@@ -218,6 +254,20 @@ const dimensions: JsonSchema = strictObject({
   format: canonicalText(100),
 })
 const briefStatus: JsonSchema = { type: 'string', enum: ['draft', 'triage', 'approved', 'production', 'review', 'completed', 'archived'] }
+const briefDetails: JsonSchema = strictObject({
+  strategy: strictObject({ targetAudience: canonicalText(100), objective: canonicalText(100), keyMessage: canonicalText(600), tension: canonicalText(240), proofPoints: canonicalStringList(8, 240) }),
+  artDirection: strictObject({ format: canonicalText(100), visualStyle: canonicalText(160), setting: canonicalText(600), talent: canonicalText(100), audio: canonicalText(240), color: canonicalText(240), mandatoryElements: canonicalStringList(8, 240) }),
+  narrative: strictObject({
+    storyArc: canonicalText(600),
+    hooks: { type: 'array', minItems: 1, maxItems: 5, items: strictObject({ visual: canonicalText(600), spoken: canonicalText(600), onScreenText: canonicalText(240) }) },
+    bodyScript: canonicalText(20_000, true), ctas: canonicalStringList(5, 120),
+  }),
+  production: strictObject({
+    aspectRatios: canonicalStringList(5, 20), durationSeconds: { type: 'integer', minimum: 1, maximum: 300 }, deliverables: canonicalStringList(20, 240),
+    shotList: { type: 'array', minItems: 1, maxItems: 50, items: strictObject({ sequence: { type: 'integer', minimum: 1, maximum: 50 }, description: canonicalText(600), audio: canonicalText(20_000, true), onScreenText: canonicalText(240) }) },
+    handoffNotes: canonicalText(2_000, true), sourceAnalysis: strictObject({ analysisVersion: canonicalText(100), confidence: { type: 'number', minimum: 0, maximum: 1 } }),
+  }),
+})
 const briefProperties: Record<string, JsonSchema> = {
   id: identifier,
   organizationId: identifier,
@@ -228,19 +278,25 @@ const briefProperties: Record<string, JsonSchema> = {
   hook: canonicalText(20_000, true),
   callToAction: { anyOf: [canonicalText(100), { type: 'null' }] },
   dimensions,
+  details: { anyOf: [briefDetails, { type: 'null' }] },
   version: { type: 'integer', minimum: 1 },
   createdAt: timestamp,
   updatedAt: timestamp,
 }
-const brief: JsonSchema = strictObject(briefProperties)
-const briefVersion: JsonSchema = strictObject({ ...briefProperties, changedBy: identifier, changedAt: timestamp })
+const requiredBriefProperties = Object.keys(briefProperties).filter((key) => key !== 'details')
+const brief: JsonSchema = strictObject(briefProperties, requiredBriefProperties)
+const briefVersion: JsonSchema = strictObject({ ...briefProperties, changedBy: identifier, changedAt: timestamp }, [...requiredBriefProperties, 'changedBy', 'changedAt'])
 const page = (item: JsonSchema): JsonSchema => strictObject({
   items: { type: 'array', maxItems: 100, items: item },
   nextCursor: { anyOf: [{ type: 'string', minLength: 1, maxLength: MAX_CURSOR_LENGTH }, { type: 'null' }] },
 })
+const iterationBriefEvidence: JsonSchema = strictObject({ id: identifier, title: canonicalText(500), status: briefStatus })
 const iterationCell: JsonSchema = strictObject({
   dimensions,
   briefIds: { type: 'array', maxItems: 10_000, items: identifier },
+  briefs: { type: 'array', maxItems: 25, items: iterationBriefEvidence },
+  briefCount: { type: 'integer', minimum: 0, maximum: 10_000 },
+  hasMoreBriefs: { type: 'boolean' },
 })
 const iterationMap: JsonSchema = strictObject({
   totalCombinations: { type: 'integer', minimum: 1, maximum: 10_000 },
@@ -248,6 +304,30 @@ const iterationMap: JsonSchema = strictObject({
   missing: { type: 'array', maxItems: 10_000, items: iterationCell },
 })
 const scaleFormatMix = strictObject({ image: { type: 'integer', minimum: 0 }, video: { type: 'integer', minimum: 0 }, carousel: { type: 'integer', minimum: 0 }, text: { type: 'integer', minimum: 0 } })
+const analyticsSnapshot = strictObject({
+  snapshotDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, capturedAt: timestamp,
+  activeAdCount: { type: 'integer', minimum: 0 }, newAdsLast7d: { type: 'integer', minimum: 0 },
+  launchVelocityDelta: { type: 'integer' }, avgDaysActive: { type: 'number', minimum: 0 },
+  longRunnerCount: { type: 'integer', minimum: 0 }, formatMix: scaleFormatMix,
+  impressionWeight: { type: 'number', minimum: 0 }, scaleScore: { type: 'integer', minimum: 0, maximum: 100 }, newlyTracked: { type: 'boolean' },
+}, ['snapshotDate', 'capturedAt', 'activeAdCount', 'newAdsLast7d', 'launchVelocityDelta', 'avgDaysActive', 'longRunnerCount', 'formatMix', 'scaleScore', 'newlyTracked'])
+const analyticsTrend = strictObject({
+  activeAdCountChange: { type: 'integer' }, activeAdCountChangePercent: { anyOf: [{ type: 'integer' }, { type: 'null' }] },
+  scaleScoreChange: { type: 'integer', minimum: -100, maximum: 100 }, direction: { type: 'string', enum: ['up', 'down', 'flat'] },
+})
+const competitorIdentity = strictObject({ id: identifier, name: canonicalText(300) })
+const competitorAnalyticsHistory = strictObject({
+  label: { type: 'string', enum: ['Public Ad Library momentum proxy'] }, competitor: competitorIdentity,
+  windowDays: { type: 'integer', enum: [7, 30, 90] }, trend7d: { anyOf: [analyticsTrend, { type: 'null' }] },
+  items: { type: 'array', maxItems: 90, items: analyticsSnapshot },
+})
+const competitorAnalyticsComparison = strictObject({
+  label: { type: 'string', enum: ['Public Ad Library momentum proxy'] },
+  items: { type: 'array', minItems: 2, maxItems: 10, items: strictObject({
+    competitor: competitorIdentity, latest: { anyOf: [analyticsSnapshot, { type: 'null' }] },
+    trend7d: { anyOf: [analyticsTrend, { type: 'null' }] },
+  }) },
+})
 const scaleAnalytics = strictObject({
   label: canonicalText(200), generatedAt: timestamp,
   items: { type: 'array', maxItems: 10_000, items: strictObject({
@@ -263,10 +343,92 @@ const creativeTags = strictObject({
   format: { type: 'string', enum: [...CREATIVE_FORMATS] }, offerFrame: { type: 'string', enum: [...OFFER_FRAMES] }, cta: canonicalText(120), onScreenText: canonicalText(600),
   visualSummary: canonicalText(600), funnelStage: { type: 'string', enum: ['awareness', 'consideration', 'conversion', 'retention'] }, confidence: { type: 'number', minimum: 0, maximum: 1 },
 }, ['hookCategory', 'angle', 'emotion', 'persona', 'format', 'offerFrame', 'cta', 'visualSummary', 'funnelStage', 'confidence'])
+const winningAdCategory: JsonSchema = { type: 'string', enum: ['classic', 'modern', 'minimal', 'bold', 'lifestyle', 'product'] }
+const winningAdMedia = strictObject({
+  position: { type: 'integer', minimum: 0, maximum: 49 }, kind: { type: 'string', enum: ['image', 'video', 'unknown'] },
+  mediaType: { type: 'string', enum: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm'] },
+  checksum: { type: 'string', pattern: '^[a-f0-9]{64}$' }, url: mirroredMediaReference,
+})
+const winningAd = strictObject({
+  id: identifier, organizationId: identifier, sourceAdId: identifier, title: canonicalText(300), category: winningAdCategory,
+  notes: canonicalText(2_000, true),
+  source: strictObject({ provider: canonicalText(64), platform: { type: 'string', enum: ['meta'] }, externalId: identifier, url: httpsUrl, advertiserName: canonicalText(500), isActive: { type: 'boolean' } }),
+  copy: strictObject({ body: canonicalText(AD_BODY_MAX_LENGTH, true), headline: { anyOf: [canonicalText(500), { type: 'null' }] }, description: { anyOf: [canonicalText(2_000), { type: 'null' }] }, callToAction: { anyOf: [canonicalText(100), { type: 'null' }] } }),
+  media: { type: 'array', minItems: 1, maxItems: 50, items: winningAdMedia },
+  analysis: { anyOf: [strictObject({ tags: creativeTags, provenance: { type: 'string', enum: ['manual', 'automatic'] }, version: canonicalText(128), analyzedAt: timestamp }), { type: 'null' }] },
+  version: { type: 'integer', minimum: 1 }, archivedAt: nullableTimestamp, createdAt: timestamp, updatedAt: timestamp,
+})
+const winningAdUpdate = strictObject({ expectedVersion: { type: 'integer', minimum: 1 }, title: normalizedText(300), category: winningAdCategory, notes: normalizedText(2_000, true) })
+
+const inspirationSourceKind: JsonSchema = { type: 'string', enum: ['competitor_ad', 'winning_ad'] }
+const inspirationBoard = strictObject({
+  id: identifier, organizationId: identifier, name: canonicalText(200), description: canonicalText(1_000, true),
+  version: { type: 'integer', minimum: 1 }, archivedAt: nullableTimestamp, createdAt: timestamp, updatedAt: timestamp,
+})
+const inspirationItem = strictObject({
+  id: identifier, organizationId: identifier, boardId: identifier, sourceKind: inspirationSourceKind, sourceId: identifier,
+  title: canonicalText(300), notes: canonicalText(4_000, true), tags: canonicalStringList(20, 60),
+  source: strictObject({ provider: canonicalText(64), platform: { type: 'string', enum: ['meta'] }, externalId: identifier, url: httpsUrl, advertiserName: canonicalText(500) }),
+  copy: strictObject({ body: canonicalText(AD_BODY_MAX_LENGTH, true), headline: { anyOf: [canonicalText(500), { type: 'null' }] } }),
+  media: { type: 'array', minItems: 1, maxItems: 50, items: winningAdMedia }, version: { type: 'integer', minimum: 1 },
+  archivedAt: nullableTimestamp, createdAt: timestamp, updatedAt: timestamp,
+})
+const inspirationMetadata = { title: normalizedText(300), notes: normalizedText(4_000, true), tags: normalizedStringList(20, 60) }
+
 const creativeAnalysis = strictObject({
   organizationId: identifier, productId: identifier, competitorAdId: identifier, analysisVersion: canonicalText(128),
   modelProvider: canonicalText(64), modelName: canonicalText(200), promptVersion: canonicalText(128),
   inputFingerprint: { type: 'string', pattern: '^[a-f0-9]{64}$' }, tags: creativeTags, analyzedAt: timestamp,
+  provenance: { type: 'string', enum: ['manual', 'automatic'] }, analysisMode: { type: 'string', enum: ['media', 'copy_only'] },
+  mediaCount: { type: 'integer', minimum: 0, maximum: 16 },
+}, ['organizationId', 'productId', 'competitorAdId', 'analysisVersion', 'modelProvider', 'modelName', 'promptVersion', 'inputFingerprint', 'tags', 'analyzedAt', 'provenance', 'analysisMode', 'mediaCount'])
+const creativeTagCorrections: JsonSchema = {
+  ...strictObject({
+    hookCategory: { type: 'string', enum: [...HOOK_CATEGORIES] }, angle: { type: 'string', enum: [...CREATIVE_ANGLES] },
+    format: { type: 'string', enum: [...CREATIVE_FORMATS] }, offerFrame: { type: 'string', enum: [...OFFER_FRAMES] },
+    funnelStage: { type: 'string', enum: ['awareness', 'consideration', 'conversion', 'retention'] },
+  }, []), minProperties: 1, maxProperties: 5,
+}
+const creativeTagReview = strictObject({
+  organizationId: identifier, productId: identifier, competitorAdId: identifier, analysisVersion: canonicalText(128),
+  inputFingerprint: { type: 'string', pattern: '^[a-f0-9]{64}$' }, reviewVersion: { type: 'integer', minimum: 1 },
+  decision: { type: 'string', enum: ['approved', 'rejected', 'corrected'] },
+  corrections: { anyOf: [creativeTagCorrections, { type: 'null' }] }, reason: canonicalText(1_000), reviewerUserId: identifier, reviewedAt: timestamp,
+})
+const creativeTagReviewItem = strictObject({
+  advertiserName: canonicalText(500), analysis: creativeAnalysis,
+  status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'corrected'] },
+  review: { anyOf: [creativeTagReview, { type: 'null' }] }, originalTags: creativeTags,
+  effectiveTags: { anyOf: [creativeTags, { type: 'null' }] }, stale: { type: 'boolean' },
+})
+const creativeTagReviewIdentityQuery = strictObject({
+  analysisVersion: canonicalText(128), inputFingerprint: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+  limit: { type: 'string', pattern: '^(?:[1-9]|[1-9][0-9]|100)$' },
+}, ['analysisVersion', 'inputFingerprint'])
+const creativeTagReviewSubmission: JsonSchema = {
+  ...strictObject({
+    analysisVersion: canonicalText(128), inputFingerprint: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+    expectedReviewVersion: { type: 'integer', minimum: 0 }, decision: { type: 'string', enum: ['approved', 'rejected', 'corrected'] },
+    corrections: { anyOf: [creativeTagCorrections, { type: 'null' }] }, reason: normalizedText(1_000),
+  }),
+  allOf: [{
+    if: { properties: { decision: { const: 'corrected' } }, required: ['decision'] },
+    then: { properties: { corrections: creativeTagCorrections } },
+    else: { properties: { corrections: { type: 'null' } } },
+  }],
+}
+const creativeStrategyFrequency = strictObject({
+  value: canonicalText(120), count: { type: 'integer', minimum: 1 }, percentage: { type: 'integer', minimum: 0, maximum: 100 },
+})
+const creativeStrategyDimension = { type: 'array', maxItems: 5, items: creativeStrategyFrequency }
+const creativeStrategy = strictObject({
+  organizationId: identifier, productId: identifier, competitorId: identifier,
+  totalAds: { type: 'integer', minimum: 0 }, analyzedAds: { type: 'integer', minimum: 0 },
+  dimensions: strictObject({
+    hooks: creativeStrategyDimension, angles: creativeStrategyDimension, formats: creativeStrategyDimension,
+    emotions: creativeStrategyDimension, personas: creativeStrategyDimension, offers: creativeStrategyDimension,
+    funnelStages: creativeStrategyDimension,
+  }),
 })
 
 function route(
@@ -379,15 +541,39 @@ export const API_CONTRACTS: readonly ApiContract[] = [
   route('POST', '/organizations/:organizationId/products/:productId/competitors/:competitorId/ads/manual-meta', '/organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/manual-meta', 'importManualMetaAds', 'Import Meta ads manually', 'Ads', { params: params('organizationId', 'productId', 'competitorId'), querystring: noQuery, body: strictObject({ records: { type: 'array', minItems: 1, maxItems: 1_000, items: manualAdRecord } }) }, 200, strictObject({ inserted: { type: 'integer', minimum: 0 }, duplicates: { type: 'integer', minimum: 0 } })),
   route('POST', '/organizations/:organizationId/products/:productId/competitors/:competitorId/ads/apify-meta/sync', '/organizations/{organizationId}/products/{productId}/competitors/{competitorId}/ads/apify-meta/sync', 'syncApifyMetaAds', 'Synchronize Meta ads through Apify', 'Ads', { params: params('organizationId', 'productId', 'competitorId'), querystring: noQuery }, 200, strictObject({ inserted: { type: 'integer', minimum: 0 }, duplicates: { type: 'integer', minimum: 0 } })),
   route('GET', '/organizations/:organizationId/competitors/:competitorId/ads', '/organizations/{organizationId}/competitors/{competitorId}/ads', 'listCompetitorAds', 'List ads for a competitor', 'Ads', { params: params('organizationId', 'competitorId'), querystring: paginationQuery() }, 200, page(ad)),
-  route('GET', '/organizations/:organizationId/ads', '/organizations/{organizationId}/ads', 'listOrganizationAds', 'List and filter organization ads', 'Ads', { params: params('organizationId'), querystring: paginationQuery({ productId: identifier, competitorId: identifier, isActive: { type: 'string', enum: ['true', 'false'] }, provider: { type: 'string', maxLength: 64, pattern: '^[a-z0-9][a-z0-9-]{0,63}$' } }, false) }, 200, page(ad)),
+  route('GET', '/organizations/:organizationId/ads', '/organizations/{organizationId}/ads', 'listOrganizationAds', 'Search, filter, sort and list organization ads', 'Ads', { params: params('organizationId'), querystring: paginationQuery({ productId: identifier, competitorId: identifier, isActive: { type: 'string', enum: ['true', 'false'] }, provider: { type: 'string', maxLength: 64, pattern: '^[a-z0-9][a-z0-9-]{0,63}$' }, search: normalizedText(200), hookCategory: normalizedText(100), angle: normalizedText(100), creativeFormat: normalizedText(100), bookmarked: { type: 'string', enum: ['true', 'false'] }, sort: { type: 'string', enum: ['first_seen_asc', 'first_seen_desc', 'last_seen_asc', 'last_seen_desc', 'lifespan_desc', 'impressions_desc'] } }, false) }, 200, page(ad)),
+  route('POST', '/organizations/:organizationId/ads/:adId/bookmark', '/organizations/{organizationId}/ads/{adId}/bookmark', 'setAdBookmark', 'Set the current user bookmark state for an ad', 'Ads', { params: params('organizationId', 'adId'), querystring: noQuery, body: strictObject({ bookmarked: { type: 'boolean' } }) }, 200, strictObject({ bookmarked: { type: 'boolean' } })),
+  route('POST', '/organizations/:organizationId/winning-ads', '/organizations/{organizationId}/winning-ads', 'saveWinningAd', 'Save an eligible mirrored competitor ad as a durable reference', 'Winning Ads', { params: params('organizationId'), querystring: noQuery, body: strictObject({ sourceAdId: identifier, title: normalizedText(300), category: winningAdCategory, notes: normalizedText(2_000, true) }) }, 201, winningAd),
+  route('GET', '/organizations/:organizationId/winning-ads', '/organizations/{organizationId}/winning-ads', 'listWinningAds', 'Search and filter the tenant Winning Ads library', 'Winning Ads', { params: params('organizationId'), querystring: paginationQuery({ search: normalizedText(200), category: winningAdCategory, active: { type: 'string', enum: ['true', 'false'] } }) }, 200, page(winningAd)),
+  route('GET', '/organizations/:organizationId/winning-ads/:winningAdId', '/organizations/{organizationId}/winning-ads/{winningAdId}', 'getWinningAd', 'Get a durable Winning Ads reference', 'Winning Ads', { params: params('organizationId', 'winningAdId'), querystring: detailQuery }, 200, winningAd),
+  route('PATCH', '/organizations/:organizationId/winning-ads/:winningAdId', '/organizations/{organizationId}/winning-ads/{winningAdId}', 'updateWinningAd', 'Update Winning Ads metadata with optimistic concurrency', 'Winning Ads', { params: params('organizationId', 'winningAdId'), querystring: noQuery, body: winningAdUpdate }, 200, winningAd),
+  route('POST', '/organizations/:organizationId/winning-ads/:winningAdId/archive', '/organizations/{organizationId}/winning-ads/{winningAdId}/archive', 'archiveWinningAd', 'Archive a Winning Ads reference', 'Winning Ads', { params: params('organizationId', 'winningAdId'), querystring: noQuery }, 200, winningAd),
+  route('DELETE', '/organizations/:organizationId/winning-ads/:winningAdId', '/organizations/{organizationId}/winning-ads/{winningAdId}', 'removeWinningAd', 'Remove a Winning Ads reference without deleting its shared media blob', 'Winning Ads', { params: params('organizationId', 'winningAdId'), querystring: noQuery }, 204, emptyResponse),
+  route('POST', '/organizations/:organizationId/inspiration/boards', '/organizations/{organizationId}/inspiration/boards', 'createInspirationBoard', 'Create an Inspiration board', 'Inspiration', { params: params('organizationId'), querystring: noQuery, body: strictObject({ name: normalizedText(200), description: normalizedText(1_000, true) }) }, 201, inspirationBoard),
+  route('GET', '/organizations/:organizationId/inspiration/boards', '/organizations/{organizationId}/inspiration/boards', 'listInspirationBoards', 'List Inspiration boards', 'Inspiration', { params: params('organizationId'), querystring: paginationQuery() }, 200, page(inspirationBoard)),
+  route('POST', '/organizations/:organizationId/inspiration/boards/:boardId/items', '/organizations/{organizationId}/inspiration/boards/{boardId}/items', 'createInspirationItem', 'Snapshot a trusted mirrored ad into an Inspiration board', 'Inspiration', { params: params('organizationId', 'boardId'), querystring: noQuery, body: strictObject({ sourceKind: inspirationSourceKind, sourceId: identifier, ...inspirationMetadata }) }, 201, inspirationItem),
+  route('GET', '/organizations/:organizationId/inspiration/items', '/organizations/{organizationId}/inspiration/items', 'listInspirationItems', 'Search filter and sort Inspiration references', 'Inspiration', { params: params('organizationId'), querystring: paginationQuery({ boardId: identifier, search: normalizedText(200), tag: normalizedText(60), sourceKind: inspirationSourceKind, sort: { type: 'string', enum: ['created_asc', 'created_desc', 'updated_desc'] } }) }, 200, page(inspirationItem)),
+  route('GET', '/organizations/:organizationId/inspiration/items/:itemId', '/organizations/{organizationId}/inspiration/items/{itemId}', 'getInspirationItem', 'Get an Inspiration reference', 'Inspiration', { params: params('organizationId', 'itemId'), querystring: detailQuery }, 200, inspirationItem),
+  route('PATCH', '/organizations/:organizationId/inspiration/items/:itemId', '/organizations/{organizationId}/inspiration/items/{itemId}', 'updateInspirationItem', 'Move or edit Inspiration metadata with optimistic concurrency', 'Inspiration', { params: params('organizationId', 'itemId'), querystring: noQuery, body: strictObject({ expectedVersion: { type: 'integer', minimum: 1 }, boardId: identifier, ...inspirationMetadata }) }, 200, inspirationItem),
+  route('POST', '/organizations/:organizationId/inspiration/items/:itemId/archive', '/organizations/{organizationId}/inspiration/items/{itemId}/archive', 'archiveInspirationItem', 'Archive an Inspiration reference', 'Inspiration', { params: params('organizationId', 'itemId'), querystring: noQuery }, 200, inspirationItem),
+  route('DELETE', '/organizations/:organizationId/inspiration/items/:itemId', '/organizations/{organizationId}/inspiration/items/{itemId}', 'removeInspirationItem', 'Remove an Inspiration reference without deleting shared media', 'Inspiration', { params: params('organizationId', 'itemId'), querystring: noQuery }, 204, emptyResponse),
+  route('GET', '/organizations/:organizationId/products/:productId/competitors/:competitorId/analytics/history', '/organizations/{organizationId}/products/{productId}/competitors/{competitorId}/analytics/history', 'getCompetitorAnalyticsHistory', 'Read durable competitor analytics history', 'Analytics', { params: params('organizationId', 'productId', 'competitorId'), querystring: strictObject({ window: { type: 'string', enum: ['7', '30', '90'] } }, []) }, 200, competitorAnalyticsHistory),
+  route('POST', '/organizations/:organizationId/products/:productId/analytics/comparison', '/organizations/{organizationId}/products/{productId}/analytics/comparison', 'compareCompetitorAnalytics', 'Compare selected active competitors from durable analytics snapshots', 'Analytics', { params: params('organizationId', 'productId'), querystring: noQuery, body: strictObject({ competitorIds: { type: 'array', minItems: 2, maxItems: 10, uniqueItems: true, items: identifier } }) }, 200, competitorAnalyticsComparison),
   route('GET', '/organizations/:organizationId/products/:productId/analytics/scaling', '/organizations/{organizationId}/products/{productId}/analytics/scaling', 'getScalingAnalytics', 'Rank competitor momentum from public library signals', 'Analytics', { params: params('organizationId', 'productId'), querystring: noQuery }, 200, scaleAnalytics),
   route('POST', '/organizations/:organizationId/products/:productId/ads/:adId/creative-analysis', '/organizations/{organizationId}/products/{productId}/ads/{adId}/creative-analysis', 'analyzeCreative', 'Analyze a creative with the configured AI provider', 'Creative Analysis', { params: params('organizationId', 'productId', 'adId'), querystring: noQuery }, 200, creativeAnalysis),
+  route('GET', '/organizations/:organizationId/creative-tag-reviews', '/organizations/{organizationId}/creative-tag-reviews', 'listCreativeTagReviews', 'List the bounded human review queue for latest AI tag analyses', 'AI Tag Governance', { params: params('organizationId'), querystring: strictObject({ productId: identifier, status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'corrected'] }, limit: { type: 'string', pattern: '^(?:[1-9]|[1-9][0-9]|100)$' } }, []) }, 200, strictObject({ items: { type: 'array', maxItems: 100, items: creativeTagReviewItem } })),
+  route('GET', '/organizations/:organizationId/ads/:adId/creative-tag-review', '/organizations/{organizationId}/ads/{adId}/creative-tag-review', 'getCreativeTagReview', 'Get review state for one exact AI analysis identity', 'AI Tag Governance', { params: params('organizationId', 'adId'), querystring: creativeTagReviewIdentityQuery }, 200, creativeTagReviewItem),
+  route('GET', '/organizations/:organizationId/ads/:adId/creative-tag-review/history', '/organizations/{organizationId}/ads/{adId}/creative-tag-review/history', 'listCreativeTagReviewHistory', 'List immutable human decisions for one exact AI analysis identity', 'AI Tag Governance', { params: params('organizationId', 'adId'), querystring: creativeTagReviewIdentityQuery }, 200, strictObject({ items: { type: 'array', maxItems: 100, items: creativeTagReview } })),
+  route('POST', '/organizations/:organizationId/ads/:adId/creative-tag-review', '/organizations/{organizationId}/ads/{adId}/creative-tag-review', 'submitCreativeTagReview', 'Append a human decision for one exact AI analysis identity', 'AI Tag Governance', { params: params('organizationId', 'adId'), querystring: noQuery, body: creativeTagReviewSubmission }, 201, creativeTagReview),
+  route('GET', '/organizations/:organizationId/products/:productId/competitors/:competitorId/creative-strategy', '/organizations/{organizationId}/products/{productId}/competitors/{competitorId}/creative-strategy', 'getCompetitorCreativeStrategy', 'Summarize a competitor creative strategy from latest completed analyses', 'Creative Analysis', { params: params('organizationId', 'productId', 'competitorId'), querystring: noQuery }, 200, creativeStrategy),
   route('POST', '/organizations/:organizationId/products/:productId/briefs/from-ad', '/organizations/{organizationId}/products/{productId}/briefs/from-ad', 'createBriefFromAd', 'Create a brief from an ad', 'Briefs', { params: params('organizationId', 'productId'), querystring: noQuery, body: strictObject({ adId: identifier, title: normalizedText(500), dimensions: normalizedDimensions }) }, 201, brief),
+  route('POST', '/organizations/:organizationId/products/:productId/briefs/from-ad/ai', '/organizations/{organizationId}/products/{productId}/briefs/from-ad/ai', 'createAiBriefFromAd', 'Create an AI-grounded production brief from the latest creative analysis', 'Briefs', { params: params('organizationId', 'productId'), querystring: noQuery, body: strictObject({ adId: identifier, title: normalizedText(500) }) }, 201, brief),
   route('POST', '/organizations/:organizationId/products/:productId/briefs', '/organizations/{organizationId}/products/{productId}/briefs', 'createManualBrief', 'Create a manual brief', 'Briefs', { params: params('organizationId', 'productId'), querystring: noQuery, body: strictObject({ title: normalizedText(500), hook: normalizedText(20_000, true), callToAction: normalizedText(100), dimensions: normalizedDimensions }, ['title', 'hook', 'dimensions']) }, 201, brief),
   route('GET', '/organizations/:organizationId/products/:productId/briefs', '/organizations/{organizationId}/products/{productId}/briefs', 'listBriefs', 'List briefs for a product', 'Briefs', { params: params('organizationId', 'productId'), querystring: paginationQuery() }, 200, page(brief)),
   route('GET', '/organizations/:organizationId/briefs/:briefId', '/organizations/{organizationId}/briefs/{briefId}', 'getBrief', 'Get a brief', 'Briefs', { params: params('organizationId', 'briefId'), querystring: detailQuery }, 200, brief),
   route('PATCH', '/organizations/:organizationId/briefs/:briefId', '/organizations/{organizationId}/briefs/{briefId}', 'updateBrief', 'Update a brief with optimistic concurrency', 'Briefs', { params: params('organizationId', 'briefId'), querystring: noQuery, body: strictObject({ expectedVersion: { type: 'integer', minimum: 1 }, title: normalizedText(500), status: briefStatus, hook: normalizedText(20_000, true), callToAction: { anyOf: [normalizedText(100), { type: 'null' }] }, dimensions: normalizedDimensions }) }, 200, brief),
   route('GET', '/organizations/:organizationId/briefs/:briefId/versions', '/organizations/{organizationId}/briefs/{briefId}/versions', 'listBriefVersions', 'List immutable brief versions', 'Briefs', { params: params('organizationId', 'briefId'), querystring: strictObject({ limit: { type: 'string', pattern: '^(?:[1-9]|[1-9][0-9]|100)$' } }, []) }, 200, strictObject({ items: { type: 'array', maxItems: 100, items: briefVersion } })),
+  route('GET', '/organizations/:organizationId/briefs/:briefId/handoff', '/organizations/{organizationId}/briefs/{briefId}/handoff', 'getBriefHandoff', 'Render a versioned production handoff document', 'Briefs', { params: params('organizationId', 'briefId'), querystring: noQuery }, 200, strictObject({ briefId: identifier, version: { type: 'integer', minimum: 1 }, filename: canonicalText(600), markdown: canonicalText(100_000, true) })),
   route('POST', '/organizations/:organizationId/products/:productId/iteration-map/analyze', '/organizations/{organizationId}/products/{productId}/iteration-map/analyze', 'analyzeIterationMap', 'Analyze Iteration Map coverage', 'Iteration Map', { params: params('organizationId', 'productId'), querystring: noQuery, body: strictObject({ axes }) }, 200, iterationMap),
 ]
 
@@ -485,8 +671,9 @@ function parametersFromObjectSchema(schema: JsonSchema | undefined, location: 'p
 function openApiParameterSchema(name: string, location: 'path' | 'query', wireSchema: JsonSchema): JsonSchema {
   if (location !== 'query') return wireSchema
   if (name === 'limit') return { type: 'integer', minimum: 1, maximum: 100, default: 50 }
+  if (name === 'window') return { type: 'integer', enum: [7, 30, 90], default: 30 }
   if (name === 'includeArchived') return { type: 'boolean', default: false }
-  if (name === 'isActive') return { type: 'boolean' }
+  if (name === 'isActive' || name === 'active') return { type: 'boolean' }
   return wireSchema
 }
 

@@ -93,8 +93,8 @@ test('filters archived briefs in SQL before domain analysis', async () => {
 
   const briefQuery = queries.find((query) => query.includes('FROM creative_briefs'))
   assert.match(briefQuery ?? '', /status\s*<>\s*'archived'/i)
-  assert.match(briefQuery ?? '', /SELECT\s+id,\s*dimensions/i)
-  assert.doesNotMatch(briefQuery ?? '', /\btitle\b|\bhook\b|call_to_action|source_ad_id/i)
+  assert.match(briefQuery ?? '', /SELECT\s+id,\s*title,\s*status,\s*dimensions/i)
+  assert.doesNotMatch(briefQuery ?? '', /\bhook\b|call_to_action|source_ad_id/i)
   assert.match(briefQuery ?? '', /LIMIT\s+\$3/i)
 })
 
